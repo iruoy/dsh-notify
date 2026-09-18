@@ -58,8 +58,18 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await page.evaluate(() => (window as any).notices[1].onclick());
   expect(await page.evaluate(() => (window as any).openedSession)).toBe('s');
   await expect.poll(() => f.store.history()[0].browser).toBe('delivered');
+  await page.mouse.move(0, 0);
+  const saveButton = page.getByRole('button', { name: 'Save settings', exact: true });
+  await expect(saveButton).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(saveButton).toHaveCSS('background-color', 'rgb(15, 17, 21)');
   await page.screenshot({ path: 'test-results/settings-desktop.png', fullPage: true });
-  await page.addStyleTag({ content: `body{background:#292929!important;color:#f5f5f5!important;--dsw-alias-label-primary:#f5f5f5;--dsw-alias-label-tertiary:#aaa;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-border-l4:#ffffff29;--dsw-alias-bg-layer-3:#333;--dsw-alias-brand-primary:#4d6bfe}` });
+  await page.addStyleTag({ content: `body{background:#292929!important;color:#f5f5f5!important;--dsw-alias-label-primary:#f5f5f5;--dsw-alias-label-tertiary:#aaa;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-border-l4:#ffffff29;--dsw-alias-bg-layer-3:#333;--dsw-alias-brand-primary:#f9fafb;--dsw-alias-button-primary-fill:#f9fafb;--dsw-alias-button-primary-hover:#ebeef2;--dsw-alias-label-primary-foreground:#0f1115}` });
+  // DSH's primary fill becomes near-white in dark mode; its foreground must invert too.
+  await expect(saveButton).toHaveCSS('color', 'rgb(15, 17, 21)');
+  await expect(saveButton).toHaveCSS('background-color', 'rgb(249, 250, 251)');
+  await saveButton.hover();
+  await expect(saveButton).toHaveCSS('background-color', 'rgb(235, 238, 242)');
+  await expect(saveButton).toHaveCSS('color', 'rgb(15, 17, 21)');
   await page.screenshot({ path: 'test-results/settings-dark.png', fullPage: true });
   await page.close();
   await expect(second.getByText(/Appears on this computer/)).toContainText('Connected');

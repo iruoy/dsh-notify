@@ -20,8 +20,8 @@ export const styles = `
 .dn button{min-height:32px;border:.5px solid var(--dsw-alias-border-l4,#8885);border-radius:8px;padding:5px 12px;background:var(--dsw-alias-bg-layer-3,transparent);color:var(--dsw-alias-label-primary,inherit);font:inherit;font-weight:500;cursor:pointer}
 .dn button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,#8882)}
 .dn button:disabled{opacity:.4;cursor:default}
-.dn .dn-primary{background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff;border-color:transparent}
-.dn .dn-primary:hover:not(:disabled){background:var(--dsw-alias-brand-primary,#4d6bfe);filter:brightness(.92)}
+.dn .dn-primary{background:var(--dsw-alias-button-primary-fill,#0f1115);color:var(--dsw-alias-label-primary-foreground,#fff);border-color:transparent}
+.dn .dn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,#43454a)}
 .dn :focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}
 .dn-events{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;margin:16px 0 0}
 .dn-events + label{margin-top:20px}
