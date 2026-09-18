@@ -43,3 +43,13 @@ it('refuses redirects and uses a request deadline', async () => {
   await sendSlack(WEBHOOK, {}, 0, new AbortController().signal, fetcher);
   expect(fetcher.mock.calls[0][1]).toMatchObject({ redirect: 'error', signal: expect.any(AbortSignal) });
 });
+
+it('renders workspace, input, model, effort, tokens and partial accounting as plain text', () => {
+  const payload = slackPayload({ ...notice(), workspace: '/work/project', input: '<!channel> fix this', usageComplete: false, runs: [
+    { provider: 'p', model: 'm', effort: 'high', inputTokens: 1200, outputTokens: 300, cacheReadTokens: 500, cacheWriteTokens: 0, totalTokens: 2000, calls: 2, reportedCalls: 1 },
+    { provider: 'p', model: 'other', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1, reportedCalls: 0 },
+  ] }, '') as { blocks: object[] };
+  const body = JSON.stringify(payload.blocks);
+  for (const value of ['Workspace: /work/project', 'Input:', 'Model: p/m', 'Effort: high', '2,000 total', '1,200 input', '300 output', '500 read', 'Tokens: Not reported', 'Effort: Not reported', 'usage is partial']) expect(body).toContain(value);
+  expect(body).not.toContain('mrkdwn'); expect(body).not.toContain('Cost:');
+});

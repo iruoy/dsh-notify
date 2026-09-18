@@ -31,7 +31,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     if (!agent || (!store.state.settings.notifySubagents && !ctx.agents.roots().includes(agent))) return;
     if (ctx.agents.roots().includes(agent)) rootSessions.add(String(agent.id));
     const title = ctx.get('sessionTitle')?.get(session)?.title;
-    const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary);
+    const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary, { workspace: session.header?.cwd, config: session.requestHeader?.()?.config });
     if (!notice) return;
     if (notice.kind === 'approval' || agent.status === 'idle') emit(notice);
     else gate.enqueue(notice);

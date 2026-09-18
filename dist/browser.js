@@ -18,7 +18,7 @@ export class BrowserStream {
         res.write(text);
     }
     packet(entry) {
-        const { summary: _summary, ...notice } = entry.notice;
+        const { summary: _summary, input: _input, ...notice } = entry.notice;
         return `id: ${entry.seq}\nevent: notice\ndata: ${JSON.stringify({ seq: entry.seq, notice })}\n\n`;
     }
     eligible(entry) {

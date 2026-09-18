@@ -14,7 +14,7 @@ export class BrowserStream {
     res.write(text);
   }
   private packet(entry: HistoryEntry): string {
-    const { summary: _summary, ...notice } = entry.notice;
+    const { summary: _summary, input: _input, ...notice } = entry.notice;
     return `id: ${entry.seq}\nevent: notice\ndata: ${JSON.stringify({ seq: entry.seq, notice })}\n\n`;
   }
   private eligible(entry: HistoryEntry): boolean {

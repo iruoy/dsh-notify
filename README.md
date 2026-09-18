@@ -42,7 +42,9 @@ If permission is blocked, allow notifications in the browser's site settings. Op
 3. Choose which events should be sent to Slack.
 4. Click **Save settings**, then **Send Slack test**.
 
-Messages include the event, session title, duration when available, and an **Open in DSH** link when a base URL is configured. The base URL defaults to the current browser origin when settings are saved.
+Messages include the event, session title, workspace path, human input (up to 1,500 characters), duration, model/provider, reasoning effort, and per-turn token usage when available, plus an **Open in DSH** link when a base URL is configured. Human input is included independently of the optional response summary; injected instructions and tool results are excluded. The base URL defaults to the current browser origin when settings are saved.
+
+Token usage is grouped by model and effort, including reported usage from failed attempts. Input, output, and cache counters are shown separately; a total is shown only when DSH supplies it for every reported call. Missing usage is marked as partial, and missing effort is shown as “Not reported”. Counts cover the observed turn, not the whole session or its subagents. Costs are not included.
 
 To replace a webhook, enter the new URL and save. Leaving the field blank keeps the existing webhook. To remove it, click **Remove webhook**, then save.
 

@@ -27,6 +27,22 @@ export interface Notice {
     time: number;
     durationMs?: number;
     summary?: string;
+    workspace?: string;
+    input?: string;
+    runs?: RunUsage[];
+    usageComplete?: boolean;
+}
+export interface RunUsage {
+    provider: string;
+    model: string;
+    effort?: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens?: number;
+    calls: number;
+    reportedCalls: number;
 }
 export type Delivery = 'disabled' | 'waiting' | 'delivered' | 'retrying' | 'failed' | 'cancelled';
 export interface HistoryEntry {

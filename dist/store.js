@@ -118,6 +118,6 @@ export class Store {
     }
     history() {
         // Response summaries never enter browser API responses, even if opted in for Slack.
-        return this.state.history.slice(-20).reverse().map(h => ({ ...h, notice: { ...h.notice, summary: undefined } }));
+        return this.state.history.slice(-20).reverse().map(h => ({ ...h, notice: { ...h.notice, summary: undefined, input: undefined } }));
     }
 }
