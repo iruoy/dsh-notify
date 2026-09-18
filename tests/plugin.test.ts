@@ -1,11 +1,12 @@
 import { Context } from '@deepseek-ai/cordis';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import * as plugin from '../src/index.js';
 import { Store } from '../src/store.js';
 import { fixture } from './fixtures.js';
 
 it('runs in Cordis, filters subagents, delivers approvals immediately and flushes terminal events once', async () => {
   const f = fixture(false); const ctx = new Context();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
   const root = { id: 'root', status: 'running' }, child = { id: 'child', status: 'running' };
   let roots = [root];
   ctx.reflect.provide('sessions', {} as any);
@@ -37,5 +38,5 @@ it('runs in Cordis, filters subagents, delivers approvals immediately and flushe
     await fiber.dispose();
     sessionEvent('root', 'approval/asked', { id: 'after-disposal', toolName: 'shell' });
     expect(new Store(f.dir).history()).toHaveLength(3);
-  } finally { await ctx.fiber.dispose(); f.cleanup(); }
+  } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
 });

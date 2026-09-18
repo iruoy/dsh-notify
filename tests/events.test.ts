@@ -91,3 +91,18 @@ it('bounds input and clears it when an agent is forgotten', () => {
   n.forget('s');
   expect(n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)?.input).toBeUndefined();
 });
+it('freezes per-call estimates into the turn and marks incomplete pricing coverage', () => {
+  let rate = 2;
+  const n = new EventNormalizer((_provider, model, usage) => model === 'model-a' ? { usd: usage.inputTokens * rate / 1_000_000, fetchedAt: 1000, stale: true } : undefined);
+  n.observe('s', '', event('turn/start', { turn: 1 }), false);
+  n.observe('s', '', response(1, { inputTokens: 100, outputTokens: 20 }), false, context);
+  rate = 4;
+  n.observe('s', '', response(1, { inputTokens: 100, outputTokens: 20 }), false, context);
+  n.observe('s', '', response(1, { inputTokens: 100, outputTokens: 20 }, 'unknown'), false, context);
+  n.observe('s', '', response(1), false, context);
+  const result = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)!;
+  expect(result.cost).toMatchObject({ calls: 4, pricedCalls: 2, fetchedAt: 1000, stale: true });
+  expect(result.cost?.usd).toBeCloseTo(0.0006);
+  rate = 100;
+  expect(result.cost?.usd).toBeCloseTo(0.0006);
+});

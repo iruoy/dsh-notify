@@ -31,6 +31,13 @@ export interface Notice {
     input?: string;
     runs?: RunUsage[];
     usageComplete?: boolean;
+    cost?: {
+        usd: number;
+        calls: number;
+        pricedCalls: number;
+        fetchedAt?: number;
+        stale: boolean;
+    };
 }
 export interface RunUsage {
     provider: string;

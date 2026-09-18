@@ -9,10 +9,15 @@ function text(content) {
 }
 /** Incrementally fold committed events, without depending on DSH's removed session.events API. */
 export class EventNormalizer {
+    priceCall;
     turns = new Map();
+    constructor(priceCall) {
+        this.priceCall = priceCall;
+    }
     observe(sessionId, title, event, includeSummary, context = {}) {
         if (event.type === 'turn/start') {
-            this.turns.set(sessionId, { turn: event.data.turn, started: event.time, summary: '', input: '', runs: [], complete: true });
+            this.turns.set(sessionId, { turn: event.data.turn, started: event.time, summary: '', input: '', runs: [], complete: true,
+                ...(this.priceCall ? { cost: { usd: 0, calls: 0, pricedCalls: 0, stale: false } } : {}) });
             return;
         }
         const active = this.turns.get(sessionId);
@@ -30,6 +35,8 @@ export class EventNormalizer {
             const source = event.type === 'assistant/message' ? event.data.message.source : config;
             const provider = source?.provider, model = source?.model;
             const effort = config && config.provider === provider && config.model === model ? config.reasoningEffort : undefined;
+            if (active.cost)
+                active.cost.calls++;
             if (!provider || !model)
                 active.complete = false;
             else {
@@ -43,6 +50,13 @@ export class EventNormalizer {
                     .flatMap(r => r.type === 'chunk' && r.chunk.type === 'usage' ? [r.chunk.usage] : []).at(-1);
                 run.calls++;
                 if (reported) {
+                    const estimated = this.priceCall?.(provider, model, reported);
+                    if (active.cost && estimated) {
+                        active.cost.usd += estimated.usd;
+                        active.cost.pricedCalls++;
+                        active.cost.fetchedAt = Math.min(active.cost.fetchedAt ?? estimated.fetchedAt, estimated.fetchedAt);
+                        active.cost.stale ||= estimated.stale;
+                    }
                     run.reportedCalls++;
                     run.inputTokens += reported.inputTokens;
                     run.outputTokens += reported.outputTokens;
@@ -70,7 +84,7 @@ export class EventNormalizer {
             return;
         const matched = active?.turn === event.data.turn ? active : undefined;
         return { ...base, id: `${sessionId}:turn:${event.data.turn}`, kind: kind,
-            ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete } : {}),
+            ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
             ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };
     }
     forget(id) { this.turns.delete(id); }

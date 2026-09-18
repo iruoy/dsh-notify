@@ -9,6 +9,15 @@ export function slackPayload(notice: Notice, baseUrl: string): object {
   const details = [`Session: ${notice.title}`];
   if (notice.workspace) details.push(`Workspace: ${notice.workspace}`);
   if (notice.durationMs !== undefined) details.push(`Duration: ${Math.floor(notice.durationMs / 60000)}m ${Math.floor(notice.durationMs / 1000) % 60}s`);
+  if (notice.cost) {
+    const cost = notice.cost;
+    if (!cost.pricedCalls) details.push('Estimated API cost: Unavailable');
+    else {
+      const value = cost.usd > 0 && cost.usd < 0.0001 ? '<$0.0001' : `~$${cost.usd.toFixed(4)}`;
+      const coverage = cost.pricedCalls < cost.calls ? ` (partial: ${cost.pricedCalls}/${cost.calls} calls priced)` : '';
+      details.push(`Estimated API cost: ${value} USD${coverage}`);
+    }
+  }
   const blocks: object[] = [
     { type: 'header', text: { type: 'plain_text', text: LABELS[notice.kind], emoji: true } },
     { type: 'section', text: { type: 'plain_text', text: details.join('\n').slice(0, 2900) } },
@@ -31,6 +40,7 @@ export function slackPayload(notice: Notice, baseUrl: string): object {
     if (!notice.usageComplete) blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: 'Token usage is partial; some calls did not report usage.' }] });
   }
   if (notice.summary) blocks.push({ type: 'section', text: { type: 'plain_text', text: notice.summary.slice(0, 1500) } });
+  if (notice.cost?.pricedCalls && notice.cost.fetchedAt !== undefined) blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: `Models.dev public list prices · refreshed ${new Date(notice.cost.fetchedAt).toISOString().slice(0, 10)}${notice.cost.stale ? ' · stale cache' : ''}` }] });
   if (baseUrl && notice.sessionId) blocks.push({ type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: 'Open in DSH' }, url: sessionUrl(baseUrl, notice.sessionId) }] });
   // Escape Slack's fallback mrkdwn to avoid titles triggering mentions.
   return { text: title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'), blocks, unfurl_links: false, unfurl_media: false };

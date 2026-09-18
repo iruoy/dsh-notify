@@ -12,6 +12,7 @@ import { Store } from './store.js';
 import { SlackQueue } from './webhook.js';
 import { BrowserStream } from './browser.js';
 import { registerApi } from './api.js';
+import { PricingCache } from './pricing.js';
 import type { Notice } from './types.js';
 
 export const name = 'dsh-notify';
@@ -20,7 +21,8 @@ export { Config };
 export function apply(ctx: Context, config: PluginConfig = {}): void {
   const directory = config.dataDir || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'dsh-notify');
   const store = new Store(directory, config.baseUrl);
-  const queue = new SlackQueue(store), stream = new BrowserStream(store), gate = new CompletionGate(), normalizer = new EventNormalizer();
+  const pricing = new PricingCache(directory);
+  const queue = new SlackQueue(store), stream = new BrowserStream(store), gate = new CompletionGate(), normalizer = new EventNormalizer(pricing.estimate);
   const rootSessions = new Set<string>();
   const emit = (notice: Notice): void => {
     try { const entry = store.add(notice); if (entry) stream.publish(entry); }
@@ -48,7 +50,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     if (store.state.settings.notifySubagents || rootSessions.has(String(agent.id))) for (const notice of pending) emit(notice);
     rootSessions.delete(String(agent.id));
   });
-  ctx.effect(() => { queue.start(); return () => { queue.dispose(); stream.dispose(); }; }, 'dsh-notify: deliveries');
+  ctx.effect(() => { queue.start(); pricing.start(); return () => { queue.dispose(); stream.dispose(); pricing.dispose(); }; }, 'dsh-notify: deliveries');
   ctx.inject(['webServer', 'connection'], web => {
     if (typeof web.connection.requestRejection !== 'function') {
       console.warn('[dsh-notify] Browser delivery requires DSH Connection.requestRejection (tested with 0.1.5-rc.2).'); return;

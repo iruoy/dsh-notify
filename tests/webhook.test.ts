@@ -53,3 +53,22 @@ it('renders workspace, input, model, effort, tokens and partial accounting as pl
   for (const value of ['Workspace: /work/project', 'Input:', 'Model: p/m', 'Effort: high', '2,000 total', '1,200 input', '300 output', '500 read', 'Tokens: Not reported', 'Effort: Not reported', 'usage is partial']) expect(body).toContain(value);
   expect(body).not.toContain('mrkdwn'); expect(body).not.toContain('Cost:');
 });
+it('shows estimated costs, partial coverage, stale prices, and unavailable prices explicitly', () => {
+  const cost = { usd: 0.02345, calls: 3, pricedCalls: 2, fetchedAt: Date.UTC(2026, 8, 18), stale: true };
+  const body = JSON.stringify(slackPayload({ ...notice(), cost }, ''));
+  expect(body).toContain('Estimated API cost: ~$0.0234 USD (partial: 2/3 calls priced)');
+  expect(body).toContain('Models.dev public list prices · refreshed 2026-09-18 · stale cache');
+  expect(JSON.stringify(slackPayload({ ...notice(), cost: { ...cost, usd: 0, pricedCalls: 0 } }, ''))).toContain('Estimated API cost: Unavailable');
+  expect(JSON.stringify(slackPayload({ ...notice(), cost: { ...cost, usd: 0.0000001 } }, ''))).toContain('<$0.0001');
+});
+it('preserves the same estimate across retries and process restarts', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('', { status: 500 })).mockResolvedValue(new Response('ok'));
+  const { store, dir, q } = setup(fetcher);
+  const cost = { usd: 0.025, calls: 2, pricedCalls: 2, fetchedAt: 123456789, stale: false };
+  store.add({ ...notice(), cost }); await q.tick();
+  const loaded = new Store(dir); expect(loaded.state.queue[0].notice.cost).toEqual(cost);
+  const restarted = new SlackQueue(loaded, fetcher); clean.push(() => restarted.dispose());
+  await restarted.tick(Date.now() + 60000);
+  expect(fetcher.mock.calls[1][1]?.body).toBe(fetcher.mock.calls[0][1]?.body);
+  expect(loaded.history()[0].notice.cost).toEqual(cost);
+});

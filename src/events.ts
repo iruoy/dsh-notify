@@ -2,6 +2,7 @@ import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-session-title';
 import type {} from '@deepseek-ai/dsh-user-approval';
 import { KINDS, type Kind, type Notice, type RunUsage } from './types.js';
+import type { PriceCall } from './pricing.js';
 
 function text(content: readonly unknown[]): string {
   return content.flatMap(block => {
@@ -13,10 +14,12 @@ function text(content: readonly unknown[]): string {
 export interface NoticeContext { workspace?: string; config?: EpochHeader['config'] }
 /** Incrementally fold committed events, without depending on DSH's removed session.events API. */
 export class EventNormalizer {
-  private turns = new Map<string, { turn: number; started: number; summary: string; input: string; runs: RunUsage[]; complete: boolean }>();
+  private turns = new Map<string, { turn: number; started: number; summary: string; input: string; runs: RunUsage[]; complete: boolean; cost?: Notice['cost'] }>();
+  constructor(private priceCall?: PriceCall) {}
   observe(sessionId: string, title: string | undefined, event: SessionEvent, includeSummary: boolean, context: NoticeContext = {}): Notice | undefined {
     if (event.type === 'turn/start') {
-      this.turns.set(sessionId, { turn: event.data.turn, started: event.time, summary: '', input: '', runs: [], complete: true }); return;
+      this.turns.set(sessionId, { turn: event.data.turn, started: event.time, summary: '', input: '', runs: [], complete: true,
+        ...(this.priceCall ? { cost: { usd: 0, calls: 0, pricedCalls: 0, stale: false } } : {}) }); return;
     }
     const active = this.turns.get(sessionId);
     if (event.type === 'user/message') {
@@ -32,6 +35,7 @@ export class EventNormalizer {
       const source = event.type === 'assistant/message' ? event.data.message.source : config;
       const provider = source?.provider, model = source?.model;
       const effort = config && config.provider === provider && config.model === model ? config.reasoningEffort : undefined;
+      if (active.cost) active.cost.calls++;
       if (!provider || !model) active.complete = false;
       else {
         let run = active.runs.find(r => r.provider === provider && r.model === model && r.effort === effort);
@@ -44,6 +48,13 @@ export class EventNormalizer {
           .flatMap(r => r.type === 'chunk' && r.chunk.type === 'usage' ? [r.chunk.usage] : []).at(-1);
         run.calls++;
         if (reported) {
+          const estimated = this.priceCall?.(provider, model, reported);
+          if (active.cost && estimated) {
+            active.cost.usd += estimated.usd;
+            active.cost.pricedCalls++;
+            active.cost.fetchedAt = Math.min(active.cost.fetchedAt ?? estimated.fetchedAt, estimated.fetchedAt);
+            active.cost.stale ||= estimated.stale;
+          }
           run.reportedCalls++;
           run.inputTokens += reported.inputTokens;
           run.outputTokens += reported.outputTokens;
@@ -65,7 +76,7 @@ export class EventNormalizer {
     if (!(KINDS as readonly string[]).includes(kind)) return;
     const matched = active?.turn === event.data.turn ? active : undefined;
     return { ...base, id: `${sessionId}:turn:${event.data.turn}`, kind: kind as Kind,
-      ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete } : {}),
+      ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
       ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };
   }
   forget(id: string): void { this.turns.delete(id); }
