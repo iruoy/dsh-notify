@@ -1,4 +1,5 @@
 import { LABELS } from './types.js';
+import { publicPricingProvider } from './pricing.js';
 export function sessionUrl(baseUrl, sessionId) {
     const url = new URL(baseUrl);
     url.searchParams.set('dsh-notify-session', sessionId);
@@ -13,12 +14,13 @@ export function slackPayload(notice, baseUrl) {
         details.push(`Duration: ${Math.floor(notice.durationMs / 60000)}m ${Math.floor(notice.durationMs / 1000) % 60}s`);
     if (notice.cost) {
         const cost = notice.cost;
+        const label = notice.runs?.some(run => publicPricingProvider(run.provider) !== run.provider) ? 'Estimated API-equivalent cost' : 'Estimated API cost';
         if (!cost.pricedCalls)
-            details.push('Estimated API cost: Unavailable');
+            details.push(`${label}: Unavailable`);
         else {
             const value = cost.usd > 0 && cost.usd < 0.0001 ? '<$0.0001' : `~$${cost.usd.toFixed(4)}`;
             const coverage = cost.pricedCalls < cost.calls ? ` (partial: ${cost.pricedCalls}/${cost.calls} calls priced)` : '';
-            details.push(`Estimated API cost: ${value} USD${coverage}`);
+            details.push(`${label}: ${value} USD${coverage}`);
         }
     }
     const blocks = [

@@ -72,3 +72,11 @@ it('preserves the same estimate across retries and process restarts', async () =
   expect(fetcher.mock.calls[1][1]?.body).toBe(fetcher.mock.calls[0][1]?.body);
   expect(loaded.history()[0].notice.cost).toEqual(cost);
 });
+
+it.each(['codex', 'claude', 'claude-code'])('labels %s estimates as API equivalents while preserving the actual provider', provider => {
+  const body = JSON.stringify(slackPayload({ ...notice(), usageComplete: true, cost: { usd: 0.025, calls: 1, pricedCalls: 1, stale: false }, runs: [
+    { provider, model: 'test-model', effort: 'low', inputTokens: 100, outputTokens: 20, cacheReadTokens: 500, cacheWriteTokens: 0, calls: 1, reportedCalls: 1 },
+  ] }, ''));
+  expect(body).toContain('Estimated API-equivalent cost: ~$0.0250 USD');
+  expect(body).toContain(`Model: ${provider}/test-model`);
+});

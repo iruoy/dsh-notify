@@ -1,5 +1,6 @@
 export declare const PRICING_URL = "https://models.dev/api.json";
 export declare const PRICING_TTL: number;
+export declare function publicPricingProvider(provider: string): string;
 export interface CallUsage {
     inputTokens: number;
     outputTokens: number;

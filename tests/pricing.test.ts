@@ -80,3 +80,28 @@ it('refreshes in the background after 24 hours and stops its timer on disposal',
   f.cache.dispose(); f.advance(PRICING_TTL); await vi.advanceTimersByTimeAsync(PRICING_TTL);
   expect(f.fetcher).toHaveBeenCalledTimes(2);
 });
+
+it('prices the DSH codex route using exact OpenAI model IDs, including after restart', async () => {
+  const data = catalog();
+  const models: Record<string, typeof data.openai.models.gpt> = data.openai.models;
+  models['gpt-5.6-sol'] = models.gpt;
+  const f = setup(vi.fn<typeof fetch>(async () => Response.json(data)));
+  await f.cache.refresh();
+  const tokens = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 500 };
+  const direct = f.cache.estimate('openai', 'gpt-5.6-sol', tokens);
+  expect(direct).toBeDefined();
+  expect(f.cache.estimate('codex', 'gpt-5.6-sol', tokens)).toEqual(direct);
+  expect(f.cache.estimate('codex', 'gpt-5.6-sol-unknown', tokens)).toBeUndefined();
+  const restarted = new PricingCache(f.dir, f.fetcher, f.now); clean.push(() => restarted.dispose());
+  expect(restarted.estimate('codex', 'gpt-5.6-sol', tokens)).toEqual(direct);
+});
+
+it.each(['claude', 'claude-code'])('prices %s using Anthropic rates without guessing model IDs', async provider => {
+  const f = setup(); await f.cache.refresh();
+  const expected = f.cache.estimate('anthropic', 'claude', usage);
+  expect(expected).toBeDefined();
+  expect(f.cache.estimate(provider, 'claude', usage)).toEqual(expected);
+  expect(f.cache.estimate(provider, 'sonnet', usage)).toBeUndefined();
+  const restarted = new PricingCache(f.dir, f.fetcher, f.now); clean.push(() => restarted.dispose());
+  expect(restarted.estimate(provider, 'claude', usage)).toEqual(expected);
+});

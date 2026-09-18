@@ -3,6 +3,13 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 export const PRICING_URL = 'https://models.dev/api.json';
 export const PRICING_TTL = 24 * 60 * 60 * 1000;
+export function publicPricingProvider(provider) {
+    if (provider === 'codex')
+        return 'openai';
+    if (provider === 'claude' || provider === 'claude-code')
+        return 'anthropic';
+    return provider;
+}
 const RETRY_INTERVAL = 60 * 60 * 1000;
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const amount = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -137,7 +144,9 @@ export class PricingCache {
     }
     estimate = (provider, model, usage) => {
         const snapshot = this.snapshot;
-        const models = snapshot && Object.hasOwn(snapshot.prices, provider) ? snapshot.prices[provider] : undefined;
+        // Known subscription/CLI routes use public API rates for the exact model ID.
+        const pricingProvider = publicPricingProvider(provider);
+        const models = snapshot && Object.hasOwn(snapshot.prices, pricingProvider) ? snapshot.prices[pricingProvider] : undefined;
         if (!snapshot || !models || !Object.hasOwn(models, model))
             return;
         const route = models[model];

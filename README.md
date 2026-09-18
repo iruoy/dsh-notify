@@ -50,7 +50,7 @@ To replace a webhook, enter the new URL and save. Leaving the field blank keeps 
 
 ### Estimated API cost
 
-Slack notifications also show an **estimated API cost in USD** for exact `openai` and `anthropic` provider/model matches in the [Models.dev public catalog](https://models.dev). No API key is required. Prices are community-maintained public list rates, not your billed amount or subscription cost; custom routes, discounts, service tiers, and separately billed tools are not accounted for.
+Slack notifications also show an **estimated API cost in USD** for exact `openai` and `anthropic` provider/model matches in the [Models.dev public catalog](https://models.dev). DSH’s `codex` provider is mapped to `openai`; `claude` and `claude-code` are mapped to `anthropic`. These routes use exact model IDs and are labeled **Estimated API-equivalent cost**, since public API rates do not represent subscription billing. No API key is required. Prices are community-maintained public list rates, not your billed amount or subscription cost; custom routes, discounts, service tiers, and separately billed tools are not accounted for.
 
 The plugin downloads `https://models.dev/api.json` in the background on startup when its cache is missing or more than 24 hours old, then checks hourly for a refresh. Validated prices are saved in `pricing.json` beside `state.json`, so they survive restarts. Failed refreshes keep the last successful cache and retry after an hour. Notifications never wait for pricing downloads: unavailable prices are marked **Unavailable**, and prices more than 24 hours old are marked **stale cache**.
 
