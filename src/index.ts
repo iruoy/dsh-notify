@@ -51,7 +51,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   ctx.effect(() => { queue.start(); return () => { queue.dispose(); stream.dispose(); }; }, 'dsh-notify: deliveries');
   ctx.inject(['webServer', 'connection'], web => {
     if (typeof web.connection.requestRejection !== 'function') {
-      console.warn('[dsh-notify] Browser delivery requires DSH Connection.requestRejection (tested with 0.1.6-alpha.2).'); return;
+      console.warn('[dsh-notify] Browser delivery requires DSH Connection.requestRejection (tested with 0.1.5-rc.2).'); return;
     }
     web.effect(() => registerApi(web.webServer, web.connection, store, stream, queue), 'dsh-notify: authenticated API');
   });

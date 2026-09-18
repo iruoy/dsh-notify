@@ -6,7 +6,7 @@ Browser notifications appear on the computer viewing DSH, even when DSH runs on 
 
 ## Requirements
 
-- DeepSeek Harness with the **0.1.6-alpha.2 API**.
+- DeepSeek Harness with the **0.1.5-rc.2 API**.
 - Node.js **22.19+ or 24+**.
 - For browser notifications: a desktop browser supporting Notifications, Web Locks, and EventSource, using HTTPS or HTTP on localhost.
 - For Slack notifications: a Slack incoming webhook URL.
