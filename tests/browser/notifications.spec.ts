@@ -17,7 +17,7 @@ test.beforeAll(async () => {
     const handler = routes.get(path);
     if (handler) { void handler(req, res); return; }
     if (path === '/app.js') { res.setHeader('content-type', 'application/javascript'); res.end(bundle.outputFiles[0].text); return; }
-    res.setHeader('content-type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSH Notify</title></head><body style="margin:0;background:#fafbf9;color:#253d36"><div id="root"></div><script src="/app.js"></script></body></html>');
+    res.setHeader('content-type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSH Notify</title></head><body style="margin:0;padding:24px;background:#fff;color:#262626;font-family:Arial,sans-serif"><div id="root"></div><script src="/app.js"></script></body></html>');
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -41,7 +41,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
     Object.defineProperty(window, 'Notification', { value: MockNotification, configurable: true });
   });
   await page.goto(base);
-  await expect(page.getByRole('heading', { name: 'Stay in the loop.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'DSH Notify' })).toBeVisible();
   await page.getByRole('button', { name: 'Enable notifications', exact: true }).click();
   expect(await page.evaluate(() => (window as any).permissionGesture)).toBe(true);
   await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
@@ -51,7 +51,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await expect(page.getByRole('status')).toHaveText('Settings saved.');
   expect(f.store.view().baseUrl).toBe(base);
   const second = await context.newPage(); await second.goto(base);
-  await expect(second.getByRole('heading', { name: 'Stay in the loop.' })).toBeVisible();
+  await expect(second.getByRole('heading', { name: 'DSH Notify' })).toBeVisible();
   const firstEntry = f.store.add(notice('browser-1'))!; stream.publish(firstEntry);
   await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(2);
   expect(await second.evaluate(() => (window as any).notices.length)).toBe(0);
@@ -59,6 +59,8 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   expect(await page.evaluate(() => (window as any).openedSession)).toBe('s');
   await expect.poll(() => f.store.history()[0].browser).toBe('delivered');
   await page.screenshot({ path: 'test-results/settings-desktop.png', fullPage: true });
+  await page.addStyleTag({ content: `body{background:#292929!important;color:#f5f5f5!important;--dsw-alias-label-primary:#f5f5f5;--dsw-alias-label-tertiary:#aaa;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-border-l4:#ffffff29;--dsw-alias-bg-layer-3:#333;--dsw-alias-brand-primary:#4d6bfe}` });
+  await page.screenshot({ path: 'test-results/settings-dark.png', fullPage: true });
   await page.close();
   await expect(second.getByText(/Appears on this computer/)).toContainText('Connected');
   const next = f.store.add(notice('browser-2'))!; stream.publish(next);
