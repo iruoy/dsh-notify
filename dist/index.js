@@ -1,0 +1,67 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { Config } from './config.js';
+import { EventNormalizer, CompletionGate } from './events.js';
+import { Store } from './store.js';
+import { SlackQueue } from './webhook.js';
+import { BrowserStream } from './browser.js';
+import { registerApi } from './api.js';
+export const name = 'dsh-notify';
+export const inject = ['sessions', 'agents'];
+export { Config };
+export function apply(ctx, config = {}) {
+    const directory = config.dataDir || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'dsh-notify');
+    const store = new Store(directory, config.baseUrl);
+    const queue = new SlackQueue(store), stream = new BrowserStream(store), gate = new CompletionGate(), normalizer = new EventNormalizer();
+    const rootSessions = new Set();
+    const emit = (notice) => {
+        try {
+            const entry = store.add(notice);
+            if (entry)
+                stream.publish(entry);
+        }
+        catch {
+            console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.');
+        }
+    };
+    ctx.on('session/event', (session, event) => {
+        const agent = ctx.agents.get(session.id);
+        if (!agent || (!store.state.settings.notifySubagents && !ctx.agents.roots().includes(agent)))
+            return;
+        if (ctx.agents.roots().includes(agent))
+            rootSessions.add(String(agent.id));
+        const title = ctx.get('sessionTitle')?.get(session)?.title;
+        const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary);
+        if (!notice)
+            return;
+        if (notice.kind === 'approval' || agent.status === 'idle')
+            emit(notice);
+        else
+            gate.enqueue(notice);
+    });
+    ctx.on('agent/status', ({ agent, status }) => {
+        if (status !== 'idle')
+            return;
+        const pending = gate.flush(String(agent.id));
+        if (store.state.settings.notifySubagents || ctx.agents.roots().includes(agent))
+            for (const notice of pending)
+                emit(notice);
+    });
+    ctx.on('agent/disposed', ({ agent }) => {
+        normalizer.forget(String(agent.id));
+        // A terminal event may be followed by disposal without another idle transition.
+        const pending = gate.flush(String(agent.id));
+        if (store.state.settings.notifySubagents || rootSessions.has(String(agent.id)))
+            for (const notice of pending)
+                emit(notice);
+        rootSessions.delete(String(agent.id));
+    });
+    ctx.effect(() => { queue.start(); return () => { queue.dispose(); stream.dispose(); }; }, 'dsh-notify: deliveries');
+    ctx.inject(['webServer', 'connection'], web => {
+        if (typeof web.connection.requestRejection !== 'function') {
+            console.warn('[dsh-notify] Browser delivery requires DSH Connection.requestRejection (tested with 0.1.6-alpha.2).');
+            return;
+        }
+        web.effect(() => registerApi(web.webServer, web.connection, store, stream, queue), 'dsh-notify: authenticated API');
+    });
+}

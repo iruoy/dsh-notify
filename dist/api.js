@@ -1,0 +1,91 @@
+import { API } from './types.js';
+import { ConflictError } from './store.js';
+import { record, ValidationError } from './config.js';
+function json(res, status, body) {
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.end(JSON.stringify(body));
+}
+async function body(req) {
+    if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
+        throw new ValidationError('application/json required.');
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 16_384)
+            throw new ValidationError('Request is too large.');
+        chunks.push(Buffer.from(chunk));
+    }
+    try {
+        return JSON.parse(Buffer.concat(chunks).toString());
+    }
+    catch {
+        throw new ValidationError('Invalid JSON.');
+    }
+}
+export function registerApi(web, connection, store, stream, queue) {
+    const disposers = [];
+    let testing = false, lastTest = 0;
+    const route = (path, methods, handler) => {
+        disposers.push(web.register({ kind: 'exact', path: API + path, handler: async (req, res) => {
+                try {
+                    const rejection = connection.requestRejection(req);
+                    if (rejection) {
+                        json(res, rejection, { error: 'DSH authentication or origin check failed.' });
+                        return;
+                    }
+                    if (!methods.includes(req.method ?? '')) {
+                        res.setHeader('allow', methods.join(', '));
+                        json(res, 405, { error: 'Method not allowed.' });
+                        return;
+                    }
+                    // A custom header on mutations forces a CORS preflight, which this API never allows.
+                    if (req.method !== 'GET' && req.headers['x-dsh-notify'] !== '1') {
+                        json(res, 403, { error: 'Missing request header.' });
+                        return;
+                    }
+                    await handler(req, res);
+                }
+                catch (error) {
+                    if (res.headersSent) {
+                        res.destroy();
+                        return;
+                    }
+                    json(res, error instanceof ConflictError ? 409 : error instanceof ValidationError ? 400 : 500, { error: error instanceof ValidationError || error instanceof ConflictError ? error.message : 'DSH Notify request failed.' });
+                }
+            } }));
+    };
+    route('/settings', ['GET', 'PUT'], async (req, res) => json(res, 200, req.method === 'GET' ? store.view() : store.update(await body(req))));
+    route('/history', ['GET'], (_req, res) => json(res, 200, store.history()));
+    route('/events', ['GET'], (req, res) => {
+        const raw = req.headers['last-event-id'] ?? new URL(req.url, 'http://localhost').searchParams.get('after');
+        const cursor = raw === null || raw === undefined ? undefined : Number(raw);
+        if (cursor !== undefined && (!Number.isSafeInteger(cursor) || cursor < 0))
+            throw new ValidationError('Invalid event cursor.');
+        stream.connect(res, cursor);
+    });
+    route('/ack', ['POST'], async (req, res) => {
+        const input = record(await body(req));
+        if (typeof input.delivered !== 'boolean' || typeof input.seq !== 'number')
+            throw new ValidationError('Invalid delivery receipt.');
+        store.ack(input.seq, input.delivered);
+        json(res, 200, { ok: true });
+    });
+    route('/test-slack', ['POST'], async (_req, res) => {
+        if (testing || Date.now() - lastTest < 5000) {
+            json(res, 429, { error: 'Please wait before sending another test.' });
+            return;
+        }
+        testing = true;
+        lastTest = Date.now();
+        try {
+            const result = await queue.test();
+            json(res, result.ok ? 200 : 502, { ok: result.ok, error: result.error });
+        }
+        finally {
+            testing = false;
+        }
+    });
+    return () => { for (const dispose of disposers)
+        dispose(); stream.dispose(); };
+}
