@@ -11,13 +11,14 @@ test.beforeAll(async () => {
   f = fixture(false); stream = new BrowserStream(f.store); queue = new SlackQueue(f.store);
   const routes = new Map<string, Parameters<WebServer['register']>[0]['handler']>();
   stopApi = registerApi({ register: r => { routes.set(r.path, r.handler); return () => routes.delete(r.path); } }, { requestRejection: () => undefined }, f.store, stream, queue);
-  const bundle = await build({ entryPoints: ['tests/browser/page.tsx'], bundle: true, write: false, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
+  const bundle = await build({ entryPoints: ['tests/browser/page.tsx'], bundle: true, write: false, outfile: 'app.js', loader: { '.module.css': 'local-css', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' }, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
   server = createServer((req, res) => {
     const path = new URL(req.url!, 'http://localhost').pathname;
     const handler = routes.get(path);
     if (handler) { void handler(req, res); return; }
-    if (path === '/app.js') { res.setHeader('content-type', 'application/javascript'); res.end(bundle.outputFiles[0].text); return; }
-    res.setHeader('content-type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSH Notify</title></head><body style="margin:0;padding:24px;background:#fff;color:#262626;font-family:Arial,sans-serif"><div id="root"></div><script src="/app.js"></script></body></html>');
+    if (path === '/app.js') { res.setHeader('content-type', 'application/javascript'); res.end(bundle.outputFiles.find(file => file.path.endsWith('/app.js'))!.text); return; }
+    if (path === '/app.css') { res.setHeader('content-type', 'text/css'); res.end(bundle.outputFiles.find(file => file.path.endsWith('/app.css'))!.text); return; }
+    res.setHeader('content-type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSH Notify</title><link rel="stylesheet" href="/app.css"><style>:root{--dsw-alias-label-primary:#262626;--dsw-alias-label-tertiary:#777;--dsw-alias-label-dimmed:#888;--dsw-alias-border-l2:#ddd;--dsw-alias-border-l3:#ccc;--dsw-alias-border-l4:#bbb;--dsw-alias-bg-layer-1:#fff;--dsw-alias-brand-primary:#0f1115;--dsw-alias-button-primary-fill:#0f1115;--dsw-alias-button-primary-hover:#43454a;--dsw-alias-label-primary-foreground:#fff}</style></head><body style="margin:0;padding:24px;background:#fff;color:#262626;font-family:Arial,sans-serif"><div id="root"></div><script src="/app.js"></script></body></html>');
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -47,9 +48,17 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
   await page.getByRole('button', { name: 'Send test notification', exact: true }).click();
   expect(await page.evaluate(() => (window as any).notices.length)).toBe(1);
+  const failedEvent = page.getByRole('switch', { name: 'Browser: Task failed', exact: true });
+  await expect(failedEvent).toBeChecked();
+  await failedEvent.click();
+  await expect(failedEvent).not.toBeChecked();
+  await page.getByLabel('DSH base URL', { exact: true }).fill(base);
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Settings saved.');
   expect(f.store.view().baseUrl).toBe(base);
+  expect(f.store.view().browser.events.error).toBe(false);
+  await page.getByRole('button', { name: 'Reload saved settings', exact: true }).click();
+  await expect(failedEvent).not.toBeChecked();
   const second = await context.newPage(); await second.goto(base);
   await expect(second.getByRole('heading', { name: 'DSH Notify' })).toBeVisible();
   const firstEntry = f.store.add(notice('browser-1'))!; stream.publish(firstEntry);
@@ -63,7 +72,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await expect(saveButton).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(saveButton).toHaveCSS('background-color', 'rgb(15, 17, 21)');
   await page.screenshot({ path: 'test-results/settings-desktop.png', fullPage: true });
-  await page.addStyleTag({ content: `body{background:#292929!important;color:#f5f5f5!important;--dsw-alias-label-primary:#f5f5f5;--dsw-alias-label-tertiary:#aaa;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-border-l4:#ffffff29;--dsw-alias-bg-layer-3:#333;--dsw-alias-brand-primary:#f9fafb;--dsw-alias-button-primary-fill:#f9fafb;--dsw-alias-button-primary-hover:#ebeef2;--dsw-alias-label-primary-foreground:#0f1115}` });
+  await page.addStyleTag({ content: `body{background:#292929!important;color:#f5f5f5!important;--dsw-alias-label-primary:#f5f5f5;--dsw-alias-label-tertiary:#aaa;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-border-l4:#ffffff29;--dsw-alias-bg-layer-1:#212121;--dsw-alias-bg-layer-3:#333;--dsw-alias-border-l3:#555;--dsw-alias-brand-primary:#f9fafb;--dsw-alias-button-primary-fill:#f9fafb;--dsw-alias-button-primary-hover:#ebeef2;--dsw-alias-label-primary-foreground:#0f1115}` });
   // DSH's primary fill becomes near-white in dark mode; its foreground must invert too.
   await expect(saveButton).toHaveCSS('color', 'rgb(15, 17, 21)');
   await expect(saveButton).toHaveCSS('background-color', 'rgb(249, 250, 251)');

@@ -103,6 +103,14 @@ Use a separate state directory for each DSH instance. Optional Cordis configurat
 
 Remote access uses DSH's existing authentication and trusted-host configuration. Reverse proxies must pass authentication cookies and support unbuffered SSE connections. Authenticated users of the same DSH instance share notification settings and history.
 
+## Development
+
+Settings controls use `Button`, `Input`, and `Switch` from DSH's shared UI primitives, supplied by the host browser module loader. Local CSS handles section layout and delivery history; it does not override those controls.
+
+The primitives package and its browser build dependencies are development-only: Playwright bundles the real components and their CSS for testing. The shipped plugin keeps the primitives import external and uses DSH's installed components and theme.
+
+Run `npm run check` and `npm run test:browser` before shipping changes.
+
 ## License
 
 [MIT](LICENSE).

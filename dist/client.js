@@ -188,11 +188,12 @@ var BrowserRuntime = class {
 
 // src/client/settings.tsx
 var import_react = require("react");
+var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 var import_jsx_runtime = require("react/jsx-runtime");
 function EventChoices({ value, onChange, destination }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dn-events", children: KINDS.map((kind) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: value[kind], "aria-label": `${destination}: ${LABELS[kind]}`, onChange: (e) => onChange({ ...value, [kind]: e.target.checked }) }),
-    LABELS[kind]
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dn-events", children: KINDS.map((kind) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: LABELS[kind] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: value[kind], label: `${destination}: ${LABELS[kind]}`, onChange: (checked) => onChange({ ...value, [kind]: checked }) })
   ] }, kind)) });
 }
 function SettingsSection({ runtime }) {
@@ -261,13 +262,13 @@ function SettingsSection({ runtime }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Choose when to receive browser and Slack notifications." })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "status", className: "dn-message", children: message }),
-    !settings || !view ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => void action(reload), children: "Reload settings" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+    !settings || !view ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", onClick: () => void action(reload), children: "Reload settings" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", { disabled: busy, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Browser" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: settings.browser.enabled, onChange: (e) => setSettings({ ...settings, browser: { ...settings.browser, enabled: e.target.checked } }) }),
-            "Browser notifications"
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Browser notifications" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.browser.enabled, label: "Browser notifications", onChange: (checked) => setSettings({ ...settings, browser: { ...settings.browser, enabled: checked } }) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dn-muted", children: permission })
         ] }),
@@ -277,13 +278,13 @@ function SettingsSection({ runtime }) {
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", disabled: !("Notification" in window) || !window.isSecureContext, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", disabled: !("Notification" in window) || !window.isSecureContext, onClick: () => {
             if ("Notification" in window) void Notification.requestPermission().then(() => {
               setPermission(permissionStatus());
               runtime.refresh();
             }).catch(() => setMessage("The browser could not request notification permission."));
           }, children: "Enable notifications" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: () => void action(async () => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", onClick: () => void action(async () => {
             runtime.test();
             setMessage("Test notification sent to this browser.");
           }), children: "Send test notification" })
@@ -293,34 +294,34 @@ function SettingsSection({ runtime }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", { disabled: busy, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Slack" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: settings.slack.enabled, onChange: (e) => setSettings({ ...settings, slack: { ...settings.slack, enabled: e.target.checked } }) }),
-            "Slack notifications"
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Slack notifications" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.slack.enabled, label: "Slack notifications", onChange: (checked) => setSettings({ ...settings, slack: { ...settings.slack, enabled: checked } }) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dn-muted", children: removeWebhook ? "Will be removed on save" : view.webhookConfigured ? "Webhook configured" : "No webhook configured" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-field", children: [
           view.webhookConfigured ? "Replace webhook" : "Incoming webhook URL",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", autoComplete: "off", spellCheck: false, placeholder: "https://hooks.slack.com/services/\u2026", value: webhook, onChange: (e) => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Input, { type: "password", autoComplete: "off", spellCheck: false, placeholder: "https://hooks.slack.com/services/\u2026", value: webhook, onChange: (e) => {
             setWebhook(e.target.value);
             setRemoveWebhook(false);
           } })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Stored privately on the DSH host. The saved URL is never returned to your browser." }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", disabled: !view.webhookConfigured, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", disabled: !view.webhookConfigured, onClick: () => {
             setRemoveWebhook(!removeWebhook);
             setWebhook("");
           }, children: removeWebhook ? "Keep webhook" : "Remove webhook" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", disabled: !view.webhookConfigured || !!webhook || removeWebhook, onClick: () => void action(async () => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", disabled: !view.webhookConfigured || !!webhook || removeWebhook, onClick: () => void action(async () => {
             await request("/test-slack", "POST");
             setMessage("Slack accepted the test notification.");
           }), children: "Send Slack test" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EventChoices, { destination: "Slack", value: settings.slack.events, onChange: (events) => setSettings({ ...settings, slack: { ...settings.slack, events } }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: settings.slack.includeSummary, onChange: (e) => setSettings({ ...settings, slack: { ...settings.slack, includeSummary: e.target.checked } }) }),
-          "Include response summaries in Slack"
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Include response summaries in Slack" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.slack.includeSummary, label: "Include response summaries in Slack", onChange: (checked) => setSettings({ ...settings, slack: { ...settings.slack, includeSummary: checked } }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Off by default. Summaries may contain code or sensitive task details." })
       ] }),
@@ -328,17 +329,17 @@ function SettingsSection({ runtime }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "General" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-field", children: [
           "DSH base URL",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "url", value: settings.baseUrl, placeholder: window.location.origin, onChange: (e) => setSettings({ ...settings, baseUrl: e.target.value }) })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Input, { type: "url", value: settings.baseUrl, placeholder: window.location.origin, onChange: (e) => setSettings({ ...settings, baseUrl: e.target.value }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Used by \u201COpen in DSH\u201D in Slack. Defaults to this browser\u2019s origin when you save." }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: settings.notifySubagents, onChange: (e) => setSettings({ ...settings, notifySubagents: e.target.checked }) }),
-          "Notify for subagents"
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Notify for subagents" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.notifySubagents, label: "Notify for subagents", onChange: (checked) => setSettings({ ...settings, notifySubagents: checked }) })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dn-primary", disabled: busy, onClick: () => void action(save), children: busy ? "Working\u2026" : "Save settings" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { disabled: busy, onClick: () => void action(reload), children: "Reload saved settings" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "primary", disabled: busy, onClick: () => void action(save), children: busy ? "Working\u2026" : "Save settings" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", disabled: busy, onClick: () => void action(reload), children: "Reload saved settings" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { children: [
         "Recent deliveries ",
@@ -381,7 +382,7 @@ function SettingsSection({ runtime }) {
 // src/client/styles.ts
 var styles = `
 .dn{width:100%;max-width:760px;min-width:0;font-family:inherit;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,inherit)}
-.dn *{box-sizing:border-box}
+.dn fieldset,.dn-table{box-sizing:border-box}
 .dn h2{margin:0;font-size:18px;font-weight:600;line-height:1.5}
 .dn h3{margin:24px 0 8px;font-size:15px;font-weight:600;line-height:22px}
 .dn p{margin:6px 0 12px}
@@ -389,22 +390,14 @@ var styles = `
 .dn-heading p{margin:8px 0 0;font-size:13px}
 .dn fieldset{min-width:0;margin:0 0 20px;padding:0 0 20px;border:0;border-bottom:.5px solid var(--dsw-alias-border-l2,#8884)}
 .dn legend{width:100%;margin:0 0 12px;padding:0;font-size:15px;font-weight:600;line-height:22px}
-.dn label{display:flex;gap:8px;align-items:center;min-width:0}
-.dn input[type=checkbox]{accent-color:var(--dsw-alias-brand-primary,#4d6bfe);width:16px;height:16px;margin:0;flex-shrink:0;cursor:pointer}
 .dn-row{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;font-size:14px;line-height:22px}
 .dn-muted{color:var(--dsw-alias-label-tertiary,#888);font-size:12px;font-weight:400}
-.dn-field{align-items:stretch!important;flex-direction:column;gap:6px!important;margin:12px 0 6px;font-weight:500}
-.dn input[type=url],.dn input[type=password]{width:100%;min-width:0;height:34px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l4,#8885);border-radius:8px;font:inherit;font-weight:400;background:var(--dsw-alias-bg-layer-3,transparent);color:var(--dsw-alias-label-primary,inherit)}
-.dn input::placeholder{color:var(--dsw-alias-label-tertiary,#888)}
+.dn-field{display:flex;align-items:stretch;flex-direction:column;gap:6px;margin:12px 0 6px;font-weight:500}
 .dn-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-.dn button{min-height:32px;border:.5px solid var(--dsw-alias-border-l4,#8885);border-radius:8px;padding:5px 12px;background:var(--dsw-alias-bg-layer-3,transparent);color:var(--dsw-alias-label-primary,inherit);font:inherit;font-weight:500;cursor:pointer}
-.dn button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,#8882)}
-.dn button:disabled{opacity:.4;cursor:default}
-.dn .dn-primary{background:var(--dsw-alias-button-primary-fill,#0f1115);color:var(--dsw-alias-label-primary-foreground,#fff);border-color:transparent}
-.dn .dn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,#43454a)}
-.dn :focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}
 .dn-events{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;margin:16px 0 0}
 .dn-events + label{margin-top:20px}
+.dn-choice{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.dn-row > .dn-choice{flex:1}
 .dn-message:empty{display:none}
 .dn-message{padding:10px 12px;background:var(--dsw-alias-bg-layer-3,#8881);border-radius:8px;margin:0 0 16px}
 .dn-error{color:var(--dsw-alias-state-error-primary,#dc6b54);font-size:12px}
@@ -416,7 +409,7 @@ var styles = `
 .dn th:first-child,.dn td:first-child{padding-left:0}
 .dn td:first-child{max-width:290px;overflow-wrap:anywhere}
 .dn td strong{font-weight:500}
-@media(max-width:560px){.dn-events{grid-template-columns:1fr}.dn-row{align-items:flex-start}.dn-actions button{max-width:100%}}
+@media(max-width:560px){.dn-events{grid-template-columns:1fr}.dn-row{align-items:flex-start}}
 `;
 
 // src/client/index.tsx
