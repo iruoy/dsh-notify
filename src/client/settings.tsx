@@ -3,7 +3,7 @@ import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import { KINDS, LABELS, type EventSwitches, type HistoryEntry, type Settings, type SettingsView } from '../types.js';
-import { BrowserRuntime, permissionStatus, permissionUndecided, request } from './runtime.js';
+import { BrowserRuntime, permissionGranted, permissionStatus, permissionUndecided, request } from './runtime.js';
 
 export interface Injected { runtime: BrowserRuntime }
 type Props = PropsRuntime<'settings.section'> & InjectFace<Injected>;
@@ -55,7 +55,7 @@ export function SettingsSection({ runtime }: Props) {
         <div className="dn-actions">{permissionUndecided() && <Button variant="outline" type="button" onClick={() => {
           // Call directly in the user gesture, before any network request or await.
           void Notification.requestPermission().then(() => { setPermission(permissionStatus()); runtime.refresh(); }).catch(() => setMessage('The browser could not request notification permission.'));
-        }}>Enable notifications</Button>}<Button variant="outline" type="button" onClick={() => void action(async () => { runtime.test(); setMessage('Test notification sent to this browser.'); })}>Send test notification</Button></div>
+        }}>Enable notifications</Button>}{permissionGranted() && <Button variant="outline" type="button" onClick={() => void action(async () => { runtime.test(); setMessage('Test notification sent to this browser.'); })}>Send test notification</Button>}</div>
         <EventChoices destination="Browser" value={settings.browser.events} onChange={events => setSettings({ ...settings, browser: { ...settings.browser, events } })} />
       </fieldset>
       <fieldset disabled={busy}><legend>Slack</legend>

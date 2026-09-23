@@ -18,6 +18,10 @@ export function permissionStatus(): string {
 export function permissionUndecided(): boolean {
   return window.isSecureContext && 'Notification' in window && Notification.permission === 'default';
 }
+/** Whether this browser may show notifications at all. */
+export function permissionGranted(): boolean {
+  return window.isSecureContext && 'Notification' in window && Notification.permission === 'granted';
+}
 const CURSOR = 'dsh-notify:cursor:v1';
 export class BrowserRuntime {
   private abort = new AbortController();

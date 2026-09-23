@@ -43,6 +43,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   });
   await page.goto(base);
   await expect(page.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send test notification', exact: true })).toBeHidden();
   await page.getByRole('button', { name: 'Enable notifications', exact: true }).click();
   expect(await page.evaluate(() => (window as any).permissionGesture)).toBe(true);
   await expect(page.getByRole('button', { name: 'Enable notifications', exact: true })).toBeHidden();

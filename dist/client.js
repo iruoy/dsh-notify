@@ -60,6 +60,9 @@ function permissionStatus() {
 function permissionUndecided() {
   return window.isSecureContext && "Notification" in window && Notification.permission === "default";
 }
+function permissionGranted() {
+  return window.isSecureContext && "Notification" in window && Notification.permission === "granted";
+}
 var CURSOR = "dsh-notify:cursor:v1";
 var BrowserRuntime = class {
   constructor(open) {
@@ -287,7 +290,7 @@ function SettingsSection({ runtime }) {
               runtime.refresh();
             }).catch(() => setMessage("The browser could not request notification permission."));
           }, children: "Enable notifications" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", onClick: () => void action(async () => {
+          permissionGranted() && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", onClick: () => void action(async () => {
             runtime.test();
             setMessage("Test notification sent to this browser.");
           }), children: "Send test notification" })
