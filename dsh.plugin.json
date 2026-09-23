@@ -1,1 +1,1 @@
-{"name":"dsh-notify","description":"Browser and Slack notifications for DeepSeek Harness","version":"0.1.4","entry":{"name":"dsh-notify","inject":["sessions","agents"]}}
+{"name":"dsh-notify","description":"Browser and Slack notifications for DeepSeek Harness","version":"0.1.5","entry":{"name":"dsh-notify","inject":["sessions","agents"]}}
