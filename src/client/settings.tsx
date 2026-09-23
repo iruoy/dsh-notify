@@ -3,7 +3,7 @@ import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import { KINDS, LABELS, type EventSwitches, type HistoryEntry, type Settings, type SettingsView } from '../types.js';
-import { BrowserRuntime, permissionStatus, request } from './runtime.js';
+import { BrowserRuntime, permissionStatus, permissionUndecided, request } from './runtime.js';
 
 export interface Injected { runtime: BrowserRuntime }
 type Props = PropsRuntime<'settings.section'> & InjectFace<Injected>;
@@ -52,10 +52,10 @@ export function SettingsSection({ runtime }: Props) {
       <fieldset disabled={busy}><legend>Browser</legend>
         <div className="dn-row"><label className="dn-choice"><span>Browser notifications</span><Switch checked={settings.browser.enabled} label="Browser notifications" onChange={checked => setSettings({ ...settings, browser: { ...settings.browser, enabled: checked } })} /></label><span className="dn-muted">{permission}</span></div>
         <p className="dn-muted">Appears on this computer while a DSH tab is open. {connection}.</p>
-        <div className="dn-actions"><Button variant="outline" type="button" disabled={!('Notification' in window) || !window.isSecureContext} onClick={() => {
+        <div className="dn-actions">{permissionUndecided() && <Button variant="outline" type="button" onClick={() => {
           // Call directly in the user gesture, before any network request or await.
-          if ('Notification' in window) void Notification.requestPermission().then(() => { setPermission(permissionStatus()); runtime.refresh(); }).catch(() => setMessage('The browser could not request notification permission.'));
-        }}>Enable notifications</Button><Button variant="outline" type="button" onClick={() => void action(async () => { runtime.test(); setMessage('Test notification sent to this browser.'); })}>Send test notification</Button></div>
+          void Notification.requestPermission().then(() => { setPermission(permissionStatus()); runtime.refresh(); }).catch(() => setMessage('The browser could not request notification permission.'));
+        }}>Enable notifications</Button>}<Button variant="outline" type="button" onClick={() => void action(async () => { runtime.test(); setMessage('Test notification sent to this browser.'); })}>Send test notification</Button></div>
         <EventChoices destination="Browser" value={settings.browser.events} onChange={events => setSettings({ ...settings, browser: { ...settings.browser, events } })} />
       </fieldset>
       <fieldset disabled={busy}><legend>Slack</legend>

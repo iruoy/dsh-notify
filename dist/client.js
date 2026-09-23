@@ -57,6 +57,9 @@ function permissionStatus() {
   if (!("Notification" in window)) return "This browser does not support desktop notifications.";
   return Notification.permission === "granted" ? "Enabled" : Notification.permission === "denied" ? "Blocked \u2014 allow notifications in your browser\u2019s site settings." : "Not enabled";
 }
+function permissionUndecided() {
+  return window.isSecureContext && "Notification" in window && Notification.permission === "default";
+}
 var CURSOR = "dsh-notify:cursor:v1";
 var BrowserRuntime = class {
   constructor(open) {
@@ -278,8 +281,8 @@ function SettingsSection({ runtime }) {
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", disabled: !("Notification" in window) || !window.isSecureContext, onClick: () => {
-            if ("Notification" in window) void Notification.requestPermission().then(() => {
+          permissionUndecided() && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", type: "button", onClick: () => {
+            void Notification.requestPermission().then(() => {
               setPermission(permissionStatus());
               runtime.refresh();
             }).catch(() => setMessage("The browser could not request notification permission."));

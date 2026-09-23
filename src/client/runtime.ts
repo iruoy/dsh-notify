@@ -14,6 +14,10 @@ export function permissionStatus(): string {
   if (!('Notification' in window)) return 'This browser does not support desktop notifications.';
   return Notification.permission === 'granted' ? 'Enabled' : Notification.permission === 'denied' ? 'Blocked — allow notifications in your browser’s site settings.' : 'Not enabled';
 }
+/** Whether asking for permission can still change anything: supported, secure, and not yet granted or denied. */
+export function permissionUndecided(): boolean {
+  return window.isSecureContext && 'Notification' in window && Notification.permission === 'default';
+}
 const CURSOR = 'dsh-notify:cursor:v1';
 export class BrowserRuntime {
   private abort = new AbortController();

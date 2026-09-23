@@ -45,6 +45,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await expect(page.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Enable notifications', exact: true }).click();
   expect(await page.evaluate(() => (window as any).permissionGesture)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Enable notifications', exact: true })).toBeHidden();
   await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
   await page.getByRole('button', { name: 'Send test notification', exact: true }).click();
   expect(await page.evaluate(() => (window as any).notices.length)).toBe(1);
@@ -61,6 +62,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await expect(failedEvent).not.toBeChecked();
   const second = await context.newPage(); await second.goto(base);
   await expect(second.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
+  await expect(second.getByRole('button', { name: 'Enable notifications', exact: true })).toBeHidden();
   const firstEntry = f.store.add(notice('browser-1'))!; stream.publish(firstEntry);
   await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(2);
   expect(await second.evaluate(() => (window as any).notices.length)).toBe(0);
