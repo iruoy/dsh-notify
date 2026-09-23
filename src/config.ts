@@ -4,7 +4,7 @@ import { KINDS, type EventSwitches, type Settings } from './types.js';
 export interface PluginConfig { dataDir?: string; baseUrl?: string }
 export const Config: Schema<PluginConfig> = Schema.object({
   dataDir: Schema.string().description('Private state directory. Default: $DSH_HOME/dsh-notify (or ~/.dsh/dsh-notify). Use a separate directory per DSH instance.'),
-  baseUrl: Schema.string().description('Public HTTPS DSH origin for Slack links. Can also be saved in DSH Notify settings.'),
+  baseUrl: Schema.string().description('Public HTTPS DSH origin for Slack links. Can also be saved in Notify settings.'),
 });
 const all = (): EventSwitches => Object.fromEntries(KINDS.map(k => [k, true])) as EventSwitches;
 export function defaults(baseUrl = ''): Settings {

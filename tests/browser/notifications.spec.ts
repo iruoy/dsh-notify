@@ -42,7 +42,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
     Object.defineProperty(window, 'Notification', { value: MockNotification, configurable: true });
   });
   await page.goto(base);
-  await expect(page.getByRole('heading', { name: 'DSH Notify' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Enable notifications', exact: true }).click();
   expect(await page.evaluate(() => (window as any).permissionGesture)).toBe(true);
   await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
@@ -60,7 +60,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await page.getByRole('button', { name: 'Reload saved settings', exact: true }).click();
   await expect(failedEvent).not.toBeChecked();
   const second = await context.newPage(); await second.goto(base);
-  await expect(second.getByRole('heading', { name: 'DSH Notify' })).toBeVisible();
+  await expect(second.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
   const firstEntry = f.store.add(notice('browser-1'))!; stream.publish(firstEntry);
   await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(2);
   expect(await second.evaluate(() => (window as any).notices.length)).toBe(0);

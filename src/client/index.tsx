@@ -15,7 +15,7 @@ export function apply(ctx: Context): void {
     runtime.start();
     const style = document.createElement('style'); style.textContent = styles; document.head.appendChild(style);
     const unregister = ctx.slots.inject('settings.section', () => ctx.slots.register({
-      name: 'settings.section', id: 'dsh-notify', order: 35, label: 'DSH Notify', inject: () => ({ runtime }),
+      name: 'settings.section', id: 'dsh-notify', order: 35, label: 'Notify', inject: () => ({ runtime }),
     }, SettingsSection));
     // A plugin-owned query parameter makes Slack links independent of DSH's internal routing.
     const url = new URL(window.location.href), id = url.searchParams.get('dsh-notify-session');

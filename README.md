@@ -22,7 +22,7 @@ The repository includes compiled files, so installation requires no build step.
 
 ## Setup
 
-Open **Settings → DSH Notify**.
+Open **Settings → Notify**.
 
 ### Browser notifications
 
@@ -109,7 +109,7 @@ Use a separate state directory for each DSH instance. Optional Cordis configurat
     baseUrl: https://dsh.example.com
 ```
 
-`baseUrl` initializes new settings. Once settings have been saved, update the URL through **Settings → DSH Notify**.
+`baseUrl` initializes new settings. Once settings have been saved, update the URL through **Settings → Notify**.
 
 Remote access uses DSH's existing authentication and trusted-host configuration. Reverse proxies must pass authentication cookies and support unbuffered SSE connections. Authenticated users of the same DSH instance share notification settings and history.
 

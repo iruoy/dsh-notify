@@ -45,8 +45,8 @@ export function SettingsSection({ runtime }: Props) {
     });
     setView(next); setWebhook(''); setRemoveWebhook(false); setMessage('Settings saved.');
   };
-  return <section className="dn" aria-label="DSH Notify settings">
-    <div className="dn-heading"><h2>DSH Notify</h2><p className="dn-muted">Choose when to receive browser and Slack notifications.</p></div>
+  return <section className="dn" aria-label="Notify settings">
+    <div className="dn-heading"><h2>Notify</h2><p className="dn-muted">Choose when to receive browser and Slack notifications.</p></div>
     <div role="status" className="dn-message">{message}</div>
     {!settings || !view ? <Button variant="outline" onClick={() => void action(reload)}>Reload settings</Button> : <>
       <fieldset disabled={busy}><legend>Browser</legend>

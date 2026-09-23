@@ -2,7 +2,7 @@ import Schema from '@deepseek-ai/schemastery';
 import { KINDS } from './types.js';
 export const Config = Schema.object({
     dataDir: Schema.string().description('Private state directory. Default: $DSH_HOME/dsh-notify (or ~/.dsh/dsh-notify). Use a separate directory per DSH instance.'),
-    baseUrl: Schema.string().description('Public HTTPS DSH origin for Slack links. Can also be saved in DSH Notify settings.'),
+    baseUrl: Schema.string().description('Public HTTPS DSH origin for Slack links. Can also be saved in Notify settings.'),
 });
 const all = () => Object.fromEntries(KINDS.map(k => [k, true]));
 export function defaults(baseUrl = '') {

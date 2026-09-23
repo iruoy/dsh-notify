@@ -256,9 +256,9 @@ function SettingsSection({ runtime }) {
     setRemoveWebhook(false);
     setMessage("Settings saved.");
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dn", "aria-label": "DSH Notify settings", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dn", "aria-label": "Notify settings", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-heading", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "DSH Notify" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Notify" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Choose when to receive browser and Slack notifications." })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "status", className: "dn-message", children: message }),
@@ -426,7 +426,7 @@ function apply(ctx) {
       name: "settings.section",
       id: "dsh-notify",
       order: 35,
-      label: "DSH Notify",
+      label: "Notify",
       inject: () => ({ runtime })
     }, SettingsSection));
     const url = new URL(window.location.href), id = url.searchParams.get("dsh-notify-session");
