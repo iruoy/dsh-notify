@@ -69,6 +69,7 @@
     "@deepseek-ai/dsh-agent": "0.1.7-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "0.1.7-rc.1",
     "@deepseek-ai/dsh-client-connection": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-client-store": "0.1.7-rc.1",
     "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.7-rc.1",
     "@deepseek-ai/dsh-client-ui-session": "0.1.7-rc.1",
@@ -86,7 +87,9 @@
     "@types/react-dom": "^18.3.7",
     "anser": "^2.3.5",
     "clsx": "^2.1.1",
+    "diff": "^9.0.0",
     "esbuild": "^0.28.2",
+    "immer": "^10.2.0",
     "katex": "^0.16.47",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",
@@ -103,8 +106,10 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "shiki": "^4.4.3",
+    "simple-icons": "16.31.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "zustand": "~4.4.7"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
