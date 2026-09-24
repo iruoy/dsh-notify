@@ -58,10 +58,16 @@ it('keeps child failures and questions on Slack while suppressing child completi
     end('child', 1, 'completed');
     end('child', 2, 'error');
     const answer = await ctx.waterfall('user-questions/request', { agent: child, questions: [{ id: 'q' }] }, async () => 'answer');
+    const secondAnswer = await ctx.waterfall('user-questions/request', { agent: child, questions: [{ id: 'q' }] }, async () => 'second answer');
     end('root', 1, 'completed');
     expect(answer).toBe('answer');
+    expect(secondAnswer).toBe('second answer');
     const history = new Store(f.dir).state.history;
-    expect(history.filter(item => item.slack !== 'disabled').map(item => item.notice.kind)).toEqual(['error', 'question', 'completed']);
+    expect(history.filter(item => item.slack !== 'disabled').map(item => item.notice.kind)).toEqual(['error', 'question', 'question', 'completed']);
+    const questions = history.filter(item => item.notice.kind === 'question');
+    expect(new Set(questions.map(item => item.notice.id)).size).toBe(2);
+    expect(questions.every(item => item.browser === 'waiting' && item.slack === 'waiting')).toBe(true);
+    expect(new Store(f.dir).state.queue.filter(item => item.notice.kind === 'question')).toHaveLength(2);
     expect(history.find(item => item.notice.id === 'child:turn:1')?.browser).toBe('waiting');
   } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
 });

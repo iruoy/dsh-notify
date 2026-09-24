@@ -45,7 +45,7 @@ export function apply(ctx, config = {}) {
     });
     ctx.on('user-questions/request', async (request, next) => {
         const sessionId = String(request.agent?.id ?? 'agentless');
-        emit({ id: `${sessionId}:question:${request.questions?.[0]?.id ?? randomUUID()}`, kind: 'question', sessionId,
+        emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
             title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
         return next();
     });
