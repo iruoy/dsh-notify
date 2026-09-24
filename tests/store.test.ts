@@ -29,6 +29,35 @@ describe('durable state and privacy', () => {
     settings.slack.includeSummary = false; store.update({ revision: 2, settings });
     expect(JSON.stringify(store.state)).not.toContain('PRIVATE');
   });
+  it('cancels legacy and child completions before delivery and persists the migration', () => {
+    const { store, dir } = setup();
+    for (const id of ['legacy', 'child', 'root', 'failure', 'question', 'delivered']) {
+      store.add({ ...notice(id), kind: id === 'failure' ? 'error' : id === 'question' ? 'question' : 'completed' });
+    }
+    // Simulate persisted work from older releases, including a pending retry.
+    store.change(s => {
+      for (const item of [...s.queue, ...s.history]) {
+        if (item.notice.id !== 'root') delete item.notice.isSubagent;
+        if (item.notice.id === 'child') item.notice.isSubagent = true;
+      }
+      s.queue = s.queue.filter(item => item.notice.id !== 'delivered');
+      s.history.find(item => item.notice.id === 'delivered')!.slack = 'delivered';
+      const legacy = s.history.find(item => item.notice.id === 'legacy')!;
+      legacy.slack = 'retrying'; legacy.nextAttempt = Date.now() + 60_000;
+    });
+    const restarted = new Store(dir);
+    expect(restarted.state.queue.map(item => item.notice.id)).toEqual(['root', 'failure', 'question']);
+    for (const id of ['legacy', 'child']) {
+      const entry = restarted.state.history.find(item => item.notice.id === id)!;
+      expect(entry).toMatchObject({ slack: 'cancelled', browser: 'waiting' });
+      expect(entry.nextAttempt).toBeUndefined();
+    }
+    expect(restarted.state.history.find(item => item.notice.id === 'delivered')?.slack).toBe('delivered');
+    expect(restarted.state.seen).toEqual(store.state.seen);
+    expect(restarted.state.sequence).toBe(store.state.sequence);
+    expect(JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'))).toEqual(restarted.state);
+    expect(new Store(dir).state).toEqual(restarted.state);
+  });
   it('cancels queued messages on webhook removal or destination change', () => {
     const { store } = setup(); store.add(notice());
     store.update({ revision: 1, settings: store.view(), webhook: null });

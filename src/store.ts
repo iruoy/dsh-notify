@@ -20,6 +20,18 @@ export class Store {
       this.state = { version: 1, revision: 0, settings: defaults(baseUrl), webhook: '', sequence: 0, history: [], queue: [], seen: [] };
       this.persist();
     }
+    // Legacy completions have no agent classification; they cannot safely be sent
+    // under the main-task-only policy. Cancel them before the queue starts.
+    if (this.state.queue.some(item => item.notice.kind === 'completed' && item.notice.isSubagent !== false)) {
+      this.change(s => {
+        s.queue = s.queue.filter(item => {
+          if (item.notice.kind !== 'completed' || item.notice.isSubagent === false) return true;
+          const history = s.history.find(h => h.seq === item.seq);
+          if (history) { history.slack = 'cancelled'; delete history.nextAttempt; }
+          return false;
+        });
+      });
+    }
   }
   /** Commit a complete snapshot, fsync before rename; the secret is never a separate partial write. */
   private persist(next = this.state): void {
@@ -64,6 +76,8 @@ export class Store {
     let entry: HistoryEntry | undefined;
     this.change(s => {
       const safe = structuredClone(notice);
+      // Persist the default explicitly so new main-task notices survive restart.
+      safe.isSubagent ??= false;
       if (!s.settings.slack.includeSummary) delete safe.summary;
       entry = { seq: ++s.sequence, notice: safe, browser: toBrowser ? 'waiting' : 'disabled', slack: toSlack ? 'waiting' : 'disabled', attempts: 0 };
       s.seen = [...s.seen, notice.id].slice(-2000);
