@@ -1,4 +1,4 @@
-export declare const KINDS: readonly ['completed', 'error', 'aborted', 'blocked', 'max-tokens', 'interrupted', 'approval'];
+export declare const KINDS: readonly ['completed', 'error', 'aborted', 'blocked', 'max-tokens', 'interrupted', 'approval', 'question'];
 export type Kind = typeof KINDS[number];
 export declare const LABELS: Record<Kind, string>;
 export type EventSwitches = Record<Kind, boolean>;
@@ -20,6 +20,7 @@ export interface SettingsView extends Settings {
     webhookConfigured: boolean;
 }
 export interface Notice {
+    isSubagent?: boolean;
     id: string;
     kind: Kind;
     sessionId: string;

@@ -70,7 +70,7 @@ export function SettingsSection({ runtime }: Props) {
       <fieldset disabled={busy}><legend>General</legend>
         <label className="dn-field">DSH base URL<Input type="url" value={settings.baseUrl} placeholder={window.location.origin} onChange={e => setSettings({ ...settings, baseUrl: e.target.value })} /></label>
         <p className="dn-muted">Used by “Open in DSH” in Slack. Defaults to this browser’s origin when you save.</p>
-        <label className="dn-choice"><span>Notify for subagents</span><Switch checked={settings.notifySubagents} label="Notify for subagents" onChange={checked => setSettings({ ...settings, notifySubagents: checked })} /></label>
+        <label className="dn-choice"><span>Browser notifications for subagents</span><Switch checked={settings.notifySubagents} label="Browser notifications for subagents" onChange={checked => setSettings({ ...settings, notifySubagents: checked })} /></label>
       </fieldset>
       <div className="dn-actions"><Button variant="primary" disabled={busy} onClick={() => void action(save)}>{busy ? 'Working…' : 'Save settings'}</Button><Button variant="outline" disabled={busy} onClick={() => void action(reload)}>Reload saved settings</Button></div>
       <h3>Recent deliveries <span className="dn-muted">Last 20</span></h3>

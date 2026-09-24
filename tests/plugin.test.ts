@@ -40,3 +40,34 @@ it('runs in Cordis, filters subagents, delivers approvals immediately and flushe
     expect(new Store(f.dir).history()).toHaveLength(3);
   } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
 });
+
+
+it('keeps child failures and questions on Slack while suppressing child completions', async () => {
+  const f = fixture();
+  const settings = f.store.view();
+  f.store.update({ revision: settings.revision, settings: { ...settings, notifySubagents: true } });
+  const ctx = new Context();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
+  const root = { id: 'root', status: 'idle' }, child = { id: 'child', status: 'idle' };
+  ctx.reflect.provide('sessions', {} as any);
+  ctx.reflect.provide('agents', { get: (id: string) => id === 'root' ? root : child, roots: () => [root] } as any);
+  await ctx.plugin(plugin, { dataDir: f.dir });
+  try {
+    const end = (id: string, turn: number, kind: string) => ctx.emit('session/event', { id } as any,
+      { type: 'turn/end', time: Date.now(), data: { turn, reason: { kind } } } as any);
+    end('child', 1, 'completed');
+    end('child', 2, 'error');
+    const answer = await ctx.waterfall('user-questions/request', { agent: child, questions: [{ id: 'q' }] }, async () => 'answer');
+    const secondAnswer = await ctx.waterfall('user-questions/request', { agent: child, questions: [{ id: 'q' }] }, async () => 'second answer');
+    end('root', 1, 'completed');
+    expect(answer).toBe('answer');
+    expect(secondAnswer).toBe('second answer');
+    const history = new Store(f.dir).state.history;
+    expect(history.filter(item => item.slack !== 'disabled').map(item => item.notice.kind)).toEqual(['error', 'question', 'question', 'completed']);
+    const questions = history.filter(item => item.notice.kind === 'question');
+    expect(new Set(questions.map(item => item.notice.id)).size).toBe(2);
+    expect(questions.every(item => item.browser === 'waiting' && item.slack === 'waiting')).toBe(true);
+    expect(new Store(f.dir).state.queue.filter(item => item.notice.kind === 'question')).toHaveLength(2);
+    expect(history.find(item => item.notice.id === 'child:turn:1')?.browser).toBe('waiting');
+  } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
+});

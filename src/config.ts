@@ -43,7 +43,7 @@ export function validateSettings(value: unknown): Settings {
   const s = record(value), browser = record(s.browser), slack = record(s.slack);
   const events = (v: unknown): EventSwitches => {
     const input = record(v);
-    return Object.fromEntries(KINDS.map(k => [k, bool(input[k])])) as EventSwitches;
+    return Object.fromEntries(KINDS.map(k => [k, bool(k === 'question' && input[k] === undefined ? true : input[k])])) as EventSwitches;
   };
   return { notifySubagents: bool(s.notifySubagents), baseUrl: validateBaseUrl(s.baseUrl),
     browser: { enabled: bool(browser.enabled), events: events(browser.events) },

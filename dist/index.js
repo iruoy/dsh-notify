@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Config } from './config.js';
@@ -28,7 +29,7 @@ export function apply(ctx, config = {}) {
     };
     ctx.on('session/event', (session, event) => {
         const agent = ctx.agents.get(session.id);
-        if (!agent || (!store.state.settings.notifySubagents && !ctx.agents.roots().includes(agent)))
+        if (!agent)
             return;
         if (ctx.agents.roots().includes(agent))
             rootSessions.add(String(agent.id));
@@ -36,26 +37,31 @@ export function apply(ctx, config = {}) {
         const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary, { workspace: session.header?.cwd, config: session.requestHeader?.()?.config });
         if (!notice)
             return;
+        notice.isSubagent = !rootSessions.has(String(agent.id));
         if (notice.kind === 'approval' || agent.status === 'idle')
             emit(notice);
         else
             gate.enqueue(notice);
     });
+    ctx.on('user-questions/request', async (request, next) => {
+        const sessionId = String(request.agent?.id ?? 'agentless');
+        emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
+            title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
+        return next();
+    });
     ctx.on('agent/status', ({ agent, status }) => {
         if (status !== 'idle')
             return;
         const pending = gate.flush(String(agent.id));
-        if (store.state.settings.notifySubagents || ctx.agents.roots().includes(agent))
-            for (const notice of pending)
-                emit(notice);
+        for (const notice of pending)
+            emit(notice);
     });
     ctx.on('agent/disposed', ({ agent }) => {
         normalizer.forget(String(agent.id));
         // A terminal event may be followed by disposal without another idle transition.
         const pending = gate.flush(String(agent.id));
-        if (store.state.settings.notifySubagents || rootSessions.has(String(agent.id)))
-            for (const notice of pending)
-                emit(notice);
+        for (const notice of pending)
+            emit(notice);
         rootSessions.delete(String(agent.id));
     });
     ctx.effect(() => { queue.start(); pricing.start(); return () => { queue.dispose(); stream.dispose(); pricing.dispose(); }; }, 'dsh-notify: deliveries');

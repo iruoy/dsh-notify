@@ -82,6 +82,7 @@ Test buttons work independently of event selections.
 
 - Browser connections can replay missed notifications from the last 200 stored events after reconnecting. A first-time browser starts with new events.
 - Slack keeps a persistent queue of up to 100 pending notifications, which survives DSH restarts.
+- On upgrade, queued task completions without an agent classification are cancelled, including main-task completions: older records cannot distinguish them from subagents. Identified main-task completions and other event types remain queued; subagent completions are cancelled.
 - Network failures, rate limits, and Slack server errors retry up to six total attempts. Rate-limit responses respect Slack's requested retry delay.
 - Removing or replacing a webhook, disabling Slack, or deselecting an event cancels affected pending deliveries. Requests already in flight may still arrive.
 

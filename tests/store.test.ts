@@ -29,6 +29,35 @@ describe('durable state and privacy', () => {
     settings.slack.includeSummary = false; store.update({ revision: 2, settings });
     expect(JSON.stringify(store.state)).not.toContain('PRIVATE');
   });
+  it('cancels legacy and child completions before delivery and persists the migration', () => {
+    const { store, dir } = setup();
+    for (const id of ['legacy', 'child', 'root', 'failure', 'question', 'delivered']) {
+      store.add({ ...notice(id), kind: id === 'failure' ? 'error' : id === 'question' ? 'question' : 'completed' });
+    }
+    // Simulate persisted work from older releases, including a pending retry.
+    store.change(s => {
+      for (const item of [...s.queue, ...s.history]) {
+        if (item.notice.id !== 'root') delete item.notice.isSubagent;
+        if (item.notice.id === 'child') item.notice.isSubagent = true;
+      }
+      s.queue = s.queue.filter(item => item.notice.id !== 'delivered');
+      s.history.find(item => item.notice.id === 'delivered')!.slack = 'delivered';
+      const legacy = s.history.find(item => item.notice.id === 'legacy')!;
+      legacy.slack = 'retrying'; legacy.nextAttempt = Date.now() + 60_000;
+    });
+    const restarted = new Store(dir);
+    expect(restarted.state.queue.map(item => item.notice.id)).toEqual(['root', 'failure', 'question']);
+    for (const id of ['legacy', 'child']) {
+      const entry = restarted.state.history.find(item => item.notice.id === id)!;
+      expect(entry).toMatchObject({ slack: 'cancelled', browser: 'waiting' });
+      expect(entry.nextAttempt).toBeUndefined();
+    }
+    expect(restarted.state.history.find(item => item.notice.id === 'delivered')?.slack).toBe('delivered');
+    expect(restarted.state.seen).toEqual(store.state.seen);
+    expect(restarted.state.sequence).toBe(store.state.sequence);
+    expect(JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'))).toEqual(restarted.state);
+    expect(new Store(dir).state).toEqual(restarted.state);
+  });
   it('cancels queued messages on webhook removal or destination change', () => {
     const { store } = setup(); store.add(notice());
     store.update({ revision: 1, settings: store.view(), webhook: null });
@@ -63,4 +92,17 @@ describe('URLs', () => {
     expect(() => validateBaseUrl('https://dsh.example.com/?token=private')).toThrow();
     expect(() => validateBaseUrl('javascript:alert(1)')).toThrow();
   });
+});
+
+
+it('sends child failures and approvals to Slack but only completes main tasks', () => {
+  const f = fixture();
+  try {
+    f.store.add({ ...notice('child:done'), isSubagent: true });
+    f.store.add({ ...notice('child:failed'), kind: 'error', isSubagent: true });
+    f.store.add({ ...notice('child:question'), kind: 'approval', isSubagent: true });
+    f.store.add(notice('root:done'));
+    expect(f.store.state.queue.map(item => item.notice.id)).toEqual(['child:failed', 'child:question', 'root:done']);
+    expect(f.store.state.history.filter(item => item.notice.isSubagent).every(item => item.browser === 'disabled')).toBe(true);
+  } finally { f.cleanup(); }
 });
