@@ -57,7 +57,7 @@ export function validateSettings(value) {
     const s = record(value), browser = record(s.browser), slack = record(s.slack);
     const events = (v) => {
         const input = record(v);
-        return Object.fromEntries(KINDS.map(k => [k, bool(input[k])]));
+        return Object.fromEntries(KINDS.map(k => [k, bool(k === 'question' && input[k] === undefined ? true : input[k])]));
     };
     return { notifySubagents: bool(s.notifySubagents), baseUrl: validateBaseUrl(s.baseUrl),
         browser: { enabled: bool(browser.enabled), events: events(browser.events) },

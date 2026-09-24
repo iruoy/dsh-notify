@@ -1,8 +1,8 @@
-export const KINDS = ['completed', 'error', 'aborted', 'blocked', 'max-tokens', 'interrupted', 'approval'] as const;
+export const KINDS = ['completed', 'error', 'aborted', 'blocked', 'max-tokens', 'interrupted', 'approval', 'question'] as const;
 export type Kind = typeof KINDS[number];
 export const LABELS: Record<Kind, string> = {
   completed: 'Task completed', error: 'Task failed', aborted: 'Task aborted', blocked: 'Task blocked',
-  'max-tokens': 'Token limit reached', interrupted: 'Task interrupted', approval: 'Approval requested',
+  'max-tokens': 'Token limit reached', interrupted: 'Task interrupted', approval: 'Approval requested', question: 'Question asked',
 };
 export type EventSwitches = Record<Kind, boolean>;
 export interface Settings {
@@ -13,6 +13,7 @@ export interface Settings {
 }
 export interface SettingsView extends Settings { revision: number; webhookConfigured: boolean }
 export interface Notice {
+  isSubagent?: boolean;
   id: string; kind: Kind; sessionId: string; title: string; time: number;
   durationMs?: number; summary?: string;
   workspace?: string; input?: string;

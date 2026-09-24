@@ -87,8 +87,8 @@ export class Store {
         if (this.state.seen.includes(notice.id))
             return;
         const { browser, slack } = this.state.settings;
-        const toBrowser = browser.enabled && browser.events[notice.kind];
-        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook);
+        const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
+        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && !(notice.isSubagent && notice.kind === 'completed');
         if (!toBrowser && !toSlack)
             return;
         let entry;

@@ -64,3 +64,16 @@ describe('URLs', () => {
     expect(() => validateBaseUrl('javascript:alert(1)')).toThrow();
   });
 });
+
+
+it('sends child failures and approvals to Slack but only completes main tasks', () => {
+  const f = fixture();
+  try {
+    f.store.add({ ...notice('child:done'), isSubagent: true });
+    f.store.add({ ...notice('child:failed'), kind: 'error', isSubagent: true });
+    f.store.add({ ...notice('child:question'), kind: 'approval', isSubagent: true });
+    f.store.add(notice('root:done'));
+    expect(f.store.state.queue.map(item => item.notice.id)).toEqual(['child:failed', 'child:question', 'root:done']);
+    expect(f.store.state.history.filter(item => item.notice.isSubagent).every(item => item.browser === 'disabled')).toBe(true);
+  } finally { f.cleanup(); }
+});

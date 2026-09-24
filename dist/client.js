@@ -27,7 +27,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // src/types.ts
-var KINDS = ["completed", "error", "aborted", "blocked", "max-tokens", "interrupted", "approval"];
+var KINDS = ["completed", "error", "aborted", "blocked", "max-tokens", "interrupted", "approval", "question"];
 var LABELS = {
   completed: "Task completed",
   error: "Task failed",
@@ -35,7 +35,8 @@ var LABELS = {
   blocked: "Task blocked",
   "max-tokens": "Token limit reached",
   interrupted: "Task interrupted",
-  approval: "Approval requested"
+  approval: "Approval requested",
+  question: "Question asked"
 };
 var API = "/api/dsh-notify";
 
@@ -339,8 +340,8 @@ function SettingsSection({ runtime }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Used by \u201COpen in DSH\u201D in Slack. Defaults to this browser\u2019s origin when you save." }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Notify for subagents" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.notifySubagents, label: "Notify for subagents", onChange: (checked) => setSettings({ ...settings, notifySubagents: checked }) })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Browser notifications for subagents" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.notifySubagents, label: "Browser notifications for subagents", onChange: (checked) => setSettings({ ...settings, notifySubagents: checked }) })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dn-actions", children: [
