@@ -28,6 +28,11 @@ export class BrowserRuntime {
   private release?: () => void;
   private source?: EventSource;
   private waiting = false;
+  private paused = false;
+  private lastCursor?: number;
+  private receipts = new Set<number>();
+  private acknowledging = new Set<number>();
+  private receiptRetry?: ReturnType<typeof setTimeout>;
   private stopped = false;
   private listeners = new Set<() => void>();
   private channel?: BroadcastChannel;
@@ -48,38 +53,78 @@ export class BrowserRuntime {
     if (this.stopped) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') { this.release?.(); this.setStatus(permissionStatus()); return; }
     if (!navigator.locks) { this.setStatus('This browser needs Web Locks support for notification delivery.'); return; }
-    if (this.waiting) return;
+    for (const seq of this.receipts) this.acknowledge(seq);
+    if (this.waiting) {
+      if (this.paused) { this.paused = false; this.connect(); }
+      return;
+    }
     this.waiting = true;
     this.setStatus('Waiting for the notification tab');
     void navigator.locks.request('dsh-notify:leader', { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== 'granted') return;
       await new Promise<void>(resolve => {
         this.release = resolve;
+        this.paused = false;
         this.connect();
       });
       this.source?.close(); this.source = undefined; this.release = undefined;
     }).catch(() => { if (!this.stopped) this.setStatus('Could not acquire notification leadership.'); }).finally(() => { this.waiting = false; });
   };
   private cursor(): number | undefined {
-    try { const raw = localStorage.getItem(CURSOR); if (raw === null) return; const value = Number(raw); return Number.isSafeInteger(value) && value >= 0 ? value : undefined; } catch { return; }
+    try {
+      const raw = localStorage.getItem(CURSOR), value = raw === null ? undefined : Number(raw);
+      if (value !== undefined && Number.isSafeInteger(value) && value >= 0) return Math.max(value, this.lastCursor ?? 0);
+    } catch { /* Keep same-tab replay safe when storage is unavailable. */ }
+    return this.lastCursor;
   }
-  private saveCursor(seq: number): void { try { localStorage.setItem(CURSOR, String(seq)); } catch { /* Same-tab EventSource still carries Last-Event-ID. */ } }
+  private saveCursor(seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    this.lastCursor = Math.max(seq, this.cursor() ?? 0);
+    try { localStorage.setItem(CURSOR, String(this.lastCursor)); } catch { /* In-memory cursor survives same-tab recovery. */ }
+  }
+  private acknowledge(seq: number): void {
+    if (this.stopped || this.acknowledging.has(seq)) return;
+    this.acknowledging.add(seq);
+    void request('/ack', 'POST', { seq, delivered: true }).then(() => {
+      this.receipts.delete(seq);
+    }).catch(() => {
+      if (this.stopped) return;
+      this.setStatus('Notification receipt could not be saved — retrying');
+      if (!this.receiptRetry) this.receiptRetry = setTimeout(() => {
+        this.receiptRetry = undefined;
+        for (const pending of this.receipts) this.acknowledge(pending);
+      }, 5000);
+    }).finally(() => this.acknowledging.delete(seq));
+  }
+  private pause(message: string): void {
+    this.paused = true;
+    this.source?.close();
+    // Retain leadership so another tab cannot advance past the failed notice.
+    this.setStatus(message);
+  }
   private connect(): void {
     const after = this.cursor();
-    this.source = new EventSource(API + '/events' + (after === undefined ? '' : `?after=${after}`));
-    this.source.onopen = () => { this.setStatus('Connected'); this.channel?.postMessage('leader'); };
-    this.source.onerror = () => this.setStatus('Disconnected — reconnecting');
-    this.source.addEventListener('cursor', event => this.saveCursor(Number((event as MessageEvent).data)));
-    this.source.addEventListener('gap', () => this.setStatus('Replay window exceeded — check recent deliveries'));
-    this.source.addEventListener('notice', event => {
+    const source = this.source = new EventSource(API + '/events' + (after === undefined ? '' : `?after=${after}`));
+    const active = () => !this.stopped && !this.paused && this.source === source;
+    source.onopen = () => { if (active()) { this.setStatus('Connected'); this.channel?.postMessage('leader'); } };
+    source.onerror = () => { if (active()) this.setStatus('Disconnected — reconnecting'); };
+    source.addEventListener('cursor', event => { if (active()) this.saveCursor(Number((event as MessageEvent).data)); });
+    source.addEventListener('gap', () => { if (active()) this.setStatus('Replay window exceeded — check recent deliveries'); });
+    source.addEventListener('notice', event => {
+      if (!active()) return;
       try {
         const { seq, notice } = JSON.parse((event as MessageEvent).data) as { seq: number; notice: Notice };
+        if (!Number.isSafeInteger(seq) || seq < 0) throw new Error('Invalid sequence');
         if (seq <= (this.cursor() ?? -1)) return;
-        let delivered = false;
-        try { this.show(notice); delivered = true; } catch { this.setStatus('Notification could not be shown. Check browser permissions.'); }
+        try { this.show(notice); } catch {
+          this.pause('Notification could not be shown. Check browser permissions, then focus this tab to retry.');
+          void request('/ack', 'POST', { seq, delivered: false }).catch(() => {});
+          return;
+        }
         this.saveCursor(seq);
-        void request('/ack', 'POST', { seq, delivered }).catch(() => this.setStatus('Notification receipt could not be saved'));
-      } catch { this.setStatus('Invalid notification received'); }
+        this.receipts.add(seq);
+        this.acknowledge(seq);
+      } catch { this.pause('Invalid notification received — focus this tab to retry.'); }
     });
   }
   show(notice: Notice): void {
@@ -89,7 +134,7 @@ export class BrowserRuntime {
   }
   test(): void { this.show({ id: 'test', kind: 'completed', title: 'DSH Notify is ready.', sessionId: '', time: Date.now() }); }
   dispose(): void {
-    this.stopped = true; this.abort.abort(); this.release?.(); this.source?.close(); this.channel?.close();
+    this.stopped = true; clearTimeout(this.receiptRetry); this.abort.abort(); this.release?.(); this.source?.close(); this.channel?.close();
     window.removeEventListener('focus', this.refresh); this.listeners.clear();
   }
 }

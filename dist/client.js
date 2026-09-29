@@ -74,6 +74,11 @@ var BrowserRuntime = class {
   release;
   source;
   waiting = false;
+  paused = false;
+  lastCursor;
+  receipts = /* @__PURE__ */ new Set();
+  acknowledging = /* @__PURE__ */ new Set();
+  receiptRetry;
   stopped = false;
   listeners = /* @__PURE__ */ new Set();
   channel;
@@ -108,13 +113,21 @@ var BrowserRuntime = class {
       this.setStatus("This browser needs Web Locks support for notification delivery.");
       return;
     }
-    if (this.waiting) return;
+    for (const seq of this.receipts) this.acknowledge(seq);
+    if (this.waiting) {
+      if (this.paused) {
+        this.paused = false;
+        this.connect();
+      }
+      return;
+    }
     this.waiting = true;
     this.setStatus("Waiting for the notification tab");
     void navigator.locks.request("dsh-notify:leader", { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== "granted") return;
       await new Promise((resolve) => {
         this.release = resolve;
+        this.paused = false;
         this.connect();
       });
       this.source?.close();
@@ -128,45 +141,77 @@ var BrowserRuntime = class {
   };
   cursor() {
     try {
-      const raw = localStorage.getItem(CURSOR);
-      if (raw === null) return;
-      const value = Number(raw);
-      return Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+      const raw = localStorage.getItem(CURSOR), value = raw === null ? void 0 : Number(raw);
+      if (value !== void 0 && Number.isSafeInteger(value) && value >= 0) return Math.max(value, this.lastCursor ?? 0);
     } catch {
-      return;
     }
+    return this.lastCursor;
   }
   saveCursor(seq) {
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    this.lastCursor = Math.max(seq, this.cursor() ?? 0);
     try {
-      localStorage.setItem(CURSOR, String(seq));
+      localStorage.setItem(CURSOR, String(this.lastCursor));
     } catch {
     }
+  }
+  acknowledge(seq) {
+    if (this.stopped || this.acknowledging.has(seq)) return;
+    this.acknowledging.add(seq);
+    void request("/ack", "POST", { seq, delivered: true }).then(() => {
+      this.receipts.delete(seq);
+    }).catch(() => {
+      if (this.stopped) return;
+      this.setStatus("Notification receipt could not be saved \u2014 retrying");
+      if (!this.receiptRetry) this.receiptRetry = setTimeout(() => {
+        this.receiptRetry = void 0;
+        for (const pending of this.receipts) this.acknowledge(pending);
+      }, 5e3);
+    }).finally(() => this.acknowledging.delete(seq));
+  }
+  pause(message) {
+    this.paused = true;
+    this.source?.close();
+    this.setStatus(message);
   }
   connect() {
     const after = this.cursor();
-    this.source = new EventSource(API + "/events" + (after === void 0 ? "" : `?after=${after}`));
-    this.source.onopen = () => {
-      this.setStatus("Connected");
-      this.channel?.postMessage("leader");
+    const source = this.source = new EventSource(API + "/events" + (after === void 0 ? "" : `?after=${after}`));
+    const active = () => !this.stopped && !this.paused && this.source === source;
+    source.onopen = () => {
+      if (active()) {
+        this.setStatus("Connected");
+        this.channel?.postMessage("leader");
+      }
     };
-    this.source.onerror = () => this.setStatus("Disconnected \u2014 reconnecting");
-    this.source.addEventListener("cursor", (event) => this.saveCursor(Number(event.data)));
-    this.source.addEventListener("gap", () => this.setStatus("Replay window exceeded \u2014 check recent deliveries"));
-    this.source.addEventListener("notice", (event) => {
+    source.onerror = () => {
+      if (active()) this.setStatus("Disconnected \u2014 reconnecting");
+    };
+    source.addEventListener("cursor", (event) => {
+      if (active()) this.saveCursor(Number(event.data));
+    });
+    source.addEventListener("gap", () => {
+      if (active()) this.setStatus("Replay window exceeded \u2014 check recent deliveries");
+    });
+    source.addEventListener("notice", (event) => {
+      if (!active()) return;
       try {
         const { seq, notice } = JSON.parse(event.data);
+        if (!Number.isSafeInteger(seq) || seq < 0) throw new Error("Invalid sequence");
         if (seq <= (this.cursor() ?? -1)) return;
-        let delivered = false;
         try {
           this.show(notice);
-          delivered = true;
         } catch {
-          this.setStatus("Notification could not be shown. Check browser permissions.");
+          this.pause("Notification could not be shown. Check browser permissions, then focus this tab to retry.");
+          void request("/ack", "POST", { seq, delivered: false }).catch(() => {
+          });
+          return;
         }
         this.saveCursor(seq);
-        void request("/ack", "POST", { seq, delivered }).catch(() => this.setStatus("Notification receipt could not be saved"));
+        this.receipts.add(seq);
+        this.acknowledge(seq);
       } catch {
-        this.setStatus("Invalid notification received");
+        this.pause("Invalid notification received \u2014 focus this tab to retry.");
       }
     });
   }
@@ -184,6 +229,7 @@ var BrowserRuntime = class {
   }
   dispose() {
     this.stopped = true;
+    clearTimeout(this.receiptRetry);
     this.abort.abort();
     this.release?.();
     this.source?.close();

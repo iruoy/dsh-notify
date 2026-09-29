@@ -80,7 +80,7 @@ Test buttons work independently of event selections.
 
 **Recent deliveries** shows the last 20 events, browser and Slack delivery status, and retry or error details.
 
-- Browser connections can replay missed notifications from the last 200 stored events after reconnecting. A first-time browser starts with new events.
+- Browser connections can replay missed notifications from the last 200 stored events after reconnecting. A first-time browser starts with new events. If display fails, delivery pauses without advancing the cursor; check permissions and focus the receiving tab to retry. The tab retains leadership while paused so later events cannot skip the failed notice. Successful receipts are retried while the tab remains open, independently of display.
 - Slack keeps a persistent queue of up to 100 pending notifications, which survives DSH restarts.
 - On upgrade, queued task completions without an agent classification are cancelled, including main-task completions: older records cannot distinguish them from subagents. Identified main-task completions remain queued; subagent completions are cancelled. Queued child events from older releases are also cancelled unless Slack subagent delivery is explicitly enabled.
 - Network failures, rate limits, and Slack server errors retry up to six total attempts. Rate-limit responses respect Slack's requested retry delay.

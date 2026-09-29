@@ -24,6 +24,34 @@ test.beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 });
 test.afterAll(async () => { stopApi(); queue.dispose(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); f.cleanup(); });
+test('display failure pauses later delivery and focus replays the failed notice', async ({ context, page }) => {
+  await context.addInitScript(() => {
+    (window as any).notices = [];
+    (window as any).failDisplay = true;
+    class MockNotification {
+      static permission = 'granted';
+      constructor(public title: string, public options: object) {
+        if ((window as any).failDisplay) throw new Error('Simulated display failure');
+        (window as any).notices.push(this);
+      }
+      close() {}
+    }
+    Object.defineProperty(window, 'Notification', { value: MockNotification, configurable: true });
+  });
+  await page.goto(base);
+  await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
+  const before = await page.evaluate(() => localStorage.getItem('dsh-notify:cursor:v1'));
+  const failed = f.store.add(notice('display-failure'))!; stream.publish(failed);
+  const later = f.store.add(notice('after-display-failure'))!; stream.publish(later);
+  await expect(page.getByText(/Appears on this computer/)).toContainText('focus this tab to retry');
+  await expect.poll(() => f.store.state.history.find(h => h.seq === failed.seq)?.browser).toBe('failed');
+  expect(await page.evaluate(() => localStorage.getItem('dsh-notify:cursor:v1'))).toBe(before);
+  expect(await page.evaluate(() => (window as any).notices.length)).toBe(0);
+  await page.evaluate(() => { (window as any).failDisplay = false; window.dispatchEvent(new Event('focus')); });
+  await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(2);
+  await expect.poll(() => f.store.state.history.find(h => h.seq === failed.seq)?.browser).toBe('delivered');
+  await expect.poll(() => f.store.state.history.find(h => h.seq === later.seq)?.browser).toBe('delivered');
+});
 test('settings, permission gesture, one notification across tabs, click, replay and leader failover', async ({ context, page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   // Record browser API calls; no real OS notifications or external Slack posts in tests.
