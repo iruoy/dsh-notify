@@ -98,7 +98,8 @@ export class EventNormalizer {
             return;
         }
         const estimated = this.priceCall?.(run.provider, run.model, reported);
-        if (active.cost && estimated) {
+        // Keep the persisted estimate finite; an unrepresentable sum counts as an unpriced call.
+        if (active.cost && estimated && Number.isFinite(active.cost.usd + estimated.usd)) {
             active.cost.usd += estimated.usd;
             active.cost.pricedCalls++;
             active.cost.fetchedAt = Math.min(active.cost.fetchedAt ?? estimated.fetchedAt, estimated.fetchedAt);

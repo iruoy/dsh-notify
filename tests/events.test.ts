@@ -179,3 +179,10 @@ it('treats a null call total as unreported instead of zero', () => {
   expect(result.runs?.[0].totalTokens).toBeUndefined();
   expect(result.runs?.[0].inputTokens).toBe(11);
 });
+it('keeps the persisted cost estimate finite', () => {
+  const n = new EventNormalizer(() => ({ usd: Number.MAX_VALUE, fetchedAt: 1000, stale: false }));
+  n.observe('s', '', event('turn/start', { turn: 1 }), false);
+  for (let i = 0; i < 2; i++) n.observe('s', '', response(1, { inputTokens: 1, outputTokens: 1 }), false, context);
+  const result = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)!;
+  expect(result.cost).toMatchObject({ usd: Number.MAX_VALUE, calls: 2, pricedCalls: 1 });
+});
