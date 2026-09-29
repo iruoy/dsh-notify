@@ -107,6 +107,29 @@ test('display failure pauses later delivery and focus replays the failed notice'
   await expect.poll(() => f.store.state.history.find(h => h.seq === failed.seq)?.browser).toBe('delivered');
   await expect.poll(() => f.store.state.history.find(h => h.seq === later.seq)?.browser).toBe('delivered');
 });
+test('recreates EventSource after a proxy error and replays missed notifications', async ({ context, page }) => {
+  const after = f.store.state.sequence;
+  const missed = (await f.store.add(notice('proxy-error-replay')))!;
+  await context.addInitScript(cursor => {
+    localStorage.setItem('dsh-notify:cursor:v1', String(cursor));
+    (window as any).notices = [];
+    class MockNotification {
+      static permission = 'granted';
+      constructor(public title: string, public options: object) { (window as any).notices.push(this); }
+      close() {}
+    }
+    Object.defineProperty(window, 'Notification', { value: MockNotification, configurable: true });
+  }, after);
+  let attempts = 0;
+  await page.route('**/api/dsh-notify/events*', route => ++attempts === 1
+    ? route.fulfill({ status: 502, contentType: 'text/plain', body: 'Temporary proxy failure' })
+    : route.continue());
+  await page.goto(base);
+  await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
+  await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(1);
+  await expect.poll(() => f.store.state.history.find(h => h.seq === missed.seq)?.browser).toBe('delivered');
+  expect(attempts).toBe(2);
+});
 test('settings, permission gesture, one notification across tabs, click, replay and leader failover', async ({ context, page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   // Record browser API calls; no real OS notifications or external Slack posts in tests.

@@ -4,6 +4,10 @@ import { notice } from './fixtures.js';
 
 class Source {
   static instances: Source[] = [];
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 2;
+  readyState = Source.CONNECTING;
   handlers = new Map<string, (event: { data: string }) => void>();
   closed = false;
   onopen?: () => void;
@@ -11,7 +15,9 @@ class Source {
   constructor(readonly url: string) { Source.instances.push(this); }
   addEventListener(type: string, fn: (event: { data: string }) => void) { this.handlers.set(type, fn); }
   emit(type: string, data: unknown) { this.handlers.get(type)?.({ data: JSON.stringify(data) }); }
-  close() { this.closed = true; }
+  open() { this.readyState = Source.OPEN; this.onopen?.(); }
+  fail(terminal = true) { this.readyState = terminal ? Source.CLOSED : Source.CONNECTING; this.onerror?.(); }
+  close() { this.closed = true; this.readyState = Source.CLOSED; }
 }
 const clean: (() => void)[] = [];
 afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -39,6 +45,81 @@ function setup(storageFails = false) {
   runtime.start();
   return { runtime, values, show, fetcher, leadership, NotificationMock, source: Source.instances[0] };
 }
+it('recreates a terminally closed stream under the same leadership and replays from the saved cursor', async () => {
+  vi.useFakeTimers();
+  const s = setup();
+  s.source.emit('cursor', 4);
+  s.source.fail();
+  s.source.fail();
+  s.runtime.refresh();
+  expect(s.runtime.snapshot()).toBe('Disconnected — reconnecting');
+  expect(Source.instances).toHaveLength(1);
+  s.source.emit('cursor', 99);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(Source.instances).toHaveLength(2);
+  expect(s.source.closed).toBe(true);
+  expect(s.leadership).toHaveBeenCalledTimes(1);
+  const recovered = Source.instances[1];
+  expect(recovered.url).toBe('/api/dsh-notify/events?after=4');
+  recovered.open();
+  expect(s.runtime.snapshot()).toBe('Connected');
+  recovered.emit('notice', { seq: 5, notice: notice('replayed') });
+  s.source.emit('notice', { seq: 6, notice: notice('stale') });
+  s.source.fail();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(s.show).toHaveBeenCalledTimes(1);
+  expect(s.values.get('dsh-notify:cursor:v1')).toBe('5');
+  expect(Source.instances).toHaveLength(2);
+});
+it('leaves nonterminal reconnects to EventSource', async () => {
+  vi.useFakeTimers();
+  const s = setup();
+  s.source.fail(false);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(Source.instances).toHaveLength(1);
+  expect(s.source.closed).toBe(false);
+  s.source.open();
+  expect(s.runtime.snapshot()).toBe('Connected');
+});
+it('backs off repeated terminal failures to a capped delay and resets after opening', async () => {
+  vi.useFakeTimers();
+  const s = setup();
+  for (const delay of [1000, 2000, 4000, 8000, 16_000, 30_000, 30_000]) {
+    const count = Source.instances.length;
+    Source.instances.at(-1)!.fail();
+    await vi.advanceTimersByTimeAsync(delay - 1);
+    expect(Source.instances).toHaveLength(count);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(Source.instances).toHaveLength(count + 1);
+  }
+  expect(s.leadership).toHaveBeenCalledTimes(1);
+  const recovered = Source.instances.at(-1)!;
+  recovered.open();
+  recovered.fail();
+  const count = Source.instances.length;
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(Source.instances).toHaveLength(count + 1);
+});
+it.each(['dispose', 'permission', 'permission without focus'])('stops terminal connection retries on %s', async reason => {
+  vi.useFakeTimers();
+  const s = setup();
+  s.source.fail();
+  if (reason === 'dispose') s.runtime.dispose();
+  else {
+    s.NotificationMock.permission = 'denied';
+    if (reason === 'permission') s.runtime.refresh();
+  }
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(Source.instances).toHaveLength(1);
+  expect(s.source.closed).toBe(true);
+  if (reason !== 'dispose') {
+    expect(s.runtime.snapshot()).toContain('Blocked');
+    s.NotificationMock.permission = 'granted';
+    s.runtime.refresh();
+    expect(s.leadership).toHaveBeenCalledTimes(2);
+    expect(Source.instances).toHaveLength(2);
+  }
+});
 it('pauses on display failure, ignores queued notices/cursors, and replays from the unchanged cursor on focus', async () => {
   const s = setup(); s.show.mockImplementationOnce(() => { throw new Error('Display failed'); });
   s.source.emit('notice', { seq: 1, notice: notice('failed') });

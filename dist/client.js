@@ -80,6 +80,8 @@ var BrowserRuntime = class {
   abort = new AbortController();
   release;
   source;
+  connectionRetry;
+  connectionRetryDelay = 1e3;
   waiting = false;
   paused = false;
   lastCursor;
@@ -112,6 +114,7 @@ var BrowserRuntime = class {
   refresh = () => {
     if (this.stopped) return;
     if (!("Notification" in window) || Notification.permission !== "granted") {
+      this.disconnect();
       this.release?.();
       this.setStatus(permissionStatus());
       return;
@@ -135,10 +138,10 @@ var BrowserRuntime = class {
       await new Promise((resolve) => {
         this.release = resolve;
         this.paused = false;
+        this.connectionRetryDelay = 1e3;
         this.connect();
       });
-      this.source?.close();
-      this.source = void 0;
+      this.disconnect();
       this.release = void 0;
     }).catch(() => {
       if (!this.stopped) this.setStatus("Could not acquire notification leadership.");
@@ -182,21 +185,41 @@ var BrowserRuntime = class {
   }
   pause(message) {
     this.paused = true;
-    this.source?.close();
+    this.disconnect();
     this.setStatus(message);
   }
+  disconnect() {
+    clearTimeout(this.connectionRetry);
+    this.connectionRetry = void 0;
+    this.source?.close();
+    this.source = void 0;
+  }
   connect() {
+    if (this.stopped || this.paused || !this.release) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      this.refresh();
+      return;
+    }
     const after = this.cursor();
     const source = this.source = new EventSource(API + "/events" + (after === void 0 ? "" : `?after=${after}`));
     const active = () => !this.stopped && !this.paused && this.source === source;
     source.onopen = () => {
       if (active()) {
+        this.connectionRetryDelay = 1e3;
         this.setStatus("Connected");
         this.channel?.postMessage("leader");
       }
     };
     source.onerror = () => {
-      if (active()) this.setStatus("Disconnected \u2014 reconnecting");
+      if (!active()) return;
+      this.setStatus("Disconnected \u2014 reconnecting");
+      if (source.readyState !== EventSource.CLOSED) return;
+      this.disconnect();
+      this.connectionRetry = setTimeout(() => {
+        this.connectionRetry = void 0;
+        this.connect();
+      }, this.connectionRetryDelay);
+      this.connectionRetryDelay = Math.min(this.connectionRetryDelay * 2, 3e4);
     };
     source.addEventListener("cursor", (event) => {
       if (active()) this.saveCursor(Number(event.data));
@@ -244,7 +267,7 @@ var BrowserRuntime = class {
     clearTimeout(this.receiptRetry);
     this.abort.abort();
     this.release?.();
-    this.source?.close();
+    this.disconnect();
     this.channel?.close();
     window.removeEventListener("focus", this.refresh);
     this.listeners.clear();

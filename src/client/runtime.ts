@@ -30,6 +30,8 @@ export class BrowserRuntime {
   private abort = new AbortController();
   private release?: () => void;
   private source?: EventSource;
+  private connectionRetry?: ReturnType<typeof setTimeout>;
+  private connectionRetryDelay = 1000;
   private waiting = false;
   private paused = false;
   private lastCursor?: number;
@@ -54,7 +56,7 @@ export class BrowserRuntime {
   }
   refresh = (): void => {
     if (this.stopped) return;
-    if (!('Notification' in window) || Notification.permission !== 'granted') { this.release?.(); this.setStatus(permissionStatus()); return; }
+    if (!('Notification' in window) || Notification.permission !== 'granted') { this.disconnect(); this.release?.(); this.setStatus(permissionStatus()); return; }
     if (!navigator.locks) { this.setStatus('This browser needs Web Locks support for notification delivery.'); return; }
     for (const seq of this.receipts) this.acknowledge(seq);
     if (this.waiting) {
@@ -68,9 +70,10 @@ export class BrowserRuntime {
       await new Promise<void>(resolve => {
         this.release = resolve;
         this.paused = false;
+        this.connectionRetryDelay = 1000;
         this.connect();
       });
-      this.source?.close(); this.source = undefined; this.release = undefined;
+      this.disconnect(); this.release = undefined;
     }).catch(() => { if (!this.stopped) this.setStatus('Could not acquire notification leadership.'); }).finally(() => { this.waiting = false; });
   };
   private cursor(): number | undefined {
@@ -107,16 +110,34 @@ export class BrowserRuntime {
   }
   private pause(message: string): void {
     this.paused = true;
-    this.source?.close();
+    this.disconnect();
     // Retain leadership so another tab cannot advance past the failed notice.
     this.setStatus(message);
   }
+  private disconnect(): void {
+    clearTimeout(this.connectionRetry); this.connectionRetry = undefined;
+    this.source?.close(); this.source = undefined;
+  }
   private connect(): void {
+    if (this.stopped || this.paused || !this.release) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') { this.refresh(); return; }
     const after = this.cursor();
     const source = this.source = new EventSource(API + '/events' + (after === undefined ? '' : `?after=${after}`));
     const active = () => !this.stopped && !this.paused && this.source === source;
-    source.onopen = () => { if (active()) { this.setStatus('Connected'); this.channel?.postMessage('leader'); } };
-    source.onerror = () => { if (active()) this.setStatus('Disconnected — reconnecting'); };
+    source.onopen = () => { if (active()) { this.connectionRetryDelay = 1000; this.setStatus('Connected'); this.channel?.postMessage('leader'); } };
+    source.onerror = () => {
+      if (!active()) return;
+      this.setStatus('Disconnected — reconnecting');
+      // CONNECTING streams retry natively; CLOSED streams need a replacement.
+      if (source.readyState !== EventSource.CLOSED) return;
+      this.disconnect();
+      // Keep the Web Lock and cursor while retrying, with backoff capped at 30 seconds.
+      this.connectionRetry = setTimeout(() => {
+        this.connectionRetry = undefined;
+        this.connect();
+      }, this.connectionRetryDelay);
+      this.connectionRetryDelay = Math.min(this.connectionRetryDelay * 2, 30_000);
+    };
     source.addEventListener('cursor', event => { if (active()) this.saveCursor(Number((event as MessageEvent).data)); });
     source.addEventListener('gap', () => { if (active()) this.setStatus('Replay window exceeded — check recent deliveries'); });
     source.addEventListener('notice', event => {
@@ -145,7 +166,7 @@ export class BrowserRuntime {
   }
   test(): void { this.show({ id: 'test', kind: 'completed', title: 'DSH Notify is ready.', sessionId: '', time: Date.now() }); }
   dispose(): void {
-    this.stopped = true; clearTimeout(this.receiptRetry); this.abort.abort(); this.release?.(); this.source?.close(); this.channel?.close();
+    this.stopped = true; clearTimeout(this.receiptRetry); this.abort.abort(); this.release?.(); this.disconnect(); this.channel?.close();
     window.removeEventListener('focus', this.refresh); this.listeners.clear();
   }
 }
