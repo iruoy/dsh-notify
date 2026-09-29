@@ -49,7 +49,7 @@ export async function apply(ctx, config = {}) {
         await emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
             title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
         return next();
-    });
+    }, { prepend: true });
     ctx.on('agent/status', async ({ agent, status }) => {
         if (status !== 'idle')
             return;

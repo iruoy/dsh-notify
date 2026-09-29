@@ -53,7 +53,7 @@ export async function apply(ctx: Context, config: PluginConfig = {}): Promise<vo
     await emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
       title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
     return next();
-  });
+  }, { prepend: true });
   ctx.on('agent/status', async ({ agent, status }) => {
     if (status !== 'idle') return;
     await Promise.all(gate.flush(String(agent.id)).map(emit));

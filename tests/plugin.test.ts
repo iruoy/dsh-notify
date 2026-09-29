@@ -6,6 +6,30 @@ import { fixture } from './fixtures.js';
 import { BrowserStream } from '../src/browser.js';
 import * as persistence from '../src/persistence.js';
 
+it.each(['before', 'after'])('notifies questions when the answering handler is registered %s the plugin', async order => {
+  const f = await fixture(false); const ctx = new Context();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
+  const publish = vi.spyOn(BrowserStream.prototype, 'publish');
+  const root = { id: 'root', status: 'idle' };
+  const answer = { q: 'Yes' };
+  const answerer = vi.fn(async () => answer);
+  const fallback = vi.fn(async () => 'unhandled');
+  ctx.reflect.provide('sessions', {} as any);
+  ctx.reflect.provide('agents', { get: () => root, roots: () => [root] } as any);
+  try {
+    if (order === 'before') ctx.on('user-questions/request', answerer);
+    await ctx.plugin(plugin, { dataDir: f.dir });
+    if (order === 'after') ctx.on('user-questions/request', answerer);
+    expect(await ctx.waterfall('user-questions/request', { agent: root, questions: [{ id: 'q' }] }, fallback)).toBe(answer);
+    expect(answerer).toHaveBeenCalledTimes(1);
+    expect(fallback).not.toHaveBeenCalled();
+    const history = (await Store.open(f.dir)).state.history;
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ notice: { kind: 'question', sessionId: 'root' }, browser: 'waiting' });
+    expect(publish).toHaveBeenCalledExactlyOnceWith(history[0]);
+  } finally { await ctx.fiber.dispose(); publish.mockRestore(); fetcher.mockRestore(); f.cleanup(); }
+});
+
 it('runs in Cordis, filters subagents, delivers approvals immediately and flushes terminal events once', async () => {
   const f = await fixture(false); const ctx = new Context();
   const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
