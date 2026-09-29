@@ -1,4 +1,6 @@
 import { KINDS } from './types.js';
+const counter = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+const timestamp = (value) => Number.isFinite(value) && value >= 0 && value <= 8.64e15;
 function text(content) {
     return content.flatMap(block => {
         if (!block || typeof block !== 'object')
@@ -9,7 +11,7 @@ function text(content) {
 }
 function noticeBase(sessionId, title, time, context) {
     // Do not send prompts or error/approval details as title fallbacks.
-    return { sessionId, title: (title || `Session ${sessionId}`).slice(0, 200), time,
+    return { sessionId, title: (title || `Session ${sessionId}`).slice(0, 200), time: timestamp(time) ? time : Date.now(),
         ...(context.workspace ? { workspace: context.workspace.slice(0, 1000) } : {}) };
 }
 /** Incrementally fold committed events, without depending on DSH's removed session.events API. */
@@ -84,6 +86,15 @@ export class EventNormalizer {
         return run;
     }
     recordUsage(active, run, reported) {
+        const inputTokens = run.inputTokens + reported.inputTokens, outputTokens = run.outputTokens + reported.outputTokens;
+        const cacheReadTokens = run.cacheReadTokens + (reported.cacheReadTokens ?? 0), cacheWriteTokens = run.cacheWriteTokens + (reported.cacheWriteTokens ?? 0);
+        const totalTokens = run.totalTokens !== undefined && reported.totalTokens !== undefined ? run.totalTokens + reported.totalTokens : undefined;
+        // Host usage is untrusted: a counter that persisted state would reject makes the turn's usage incomplete.
+        if (![reported.inputTokens, reported.outputTokens, reported.cacheReadTokens ?? 0, reported.cacheWriteTokens ?? 0, reported.totalTokens ?? 0].every(counter)
+            || ![inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens ?? 0].every(counter)) {
+            active.complete = false;
+            return;
+        }
         const estimated = this.priceCall?.(run.provider, run.model, reported);
         if (active.cost && estimated) {
             active.cost.usd += estimated.usd;
@@ -92,12 +103,8 @@ export class EventNormalizer {
             active.cost.stale ||= estimated.stale;
         }
         run.reportedCalls++;
-        run.inputTokens += reported.inputTokens;
-        run.outputTokens += reported.outputTokens;
-        run.cacheReadTokens += reported.cacheReadTokens ?? 0;
-        run.cacheWriteTokens += reported.cacheWriteTokens ?? 0;
         // Only the adapter can assert an authoritative full-call total.
-        run.totalTokens = run.totalTokens !== undefined && reported.totalTokens !== undefined ? run.totalTokens + reported.totalTokens : undefined;
+        Object.assign(run, { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens });
     }
     finishTurn(base, event, includeSummary) {
         const active = this.turns.get(base.sessionId);
@@ -108,7 +115,7 @@ export class EventNormalizer {
         if (!KINDS.includes(kind))
             return;
         return { ...base, id: `${base.sessionId}:turn:${event.data.turn}`, kind: kind,
-            ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
+            ...(matched ? { ...(timestamp(event.time) && timestamp(matched.started) ? { durationMs: Math.max(0, event.time - matched.started) } : {}), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
             ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };
     }
     forget(id) { this.turns.delete(id); }

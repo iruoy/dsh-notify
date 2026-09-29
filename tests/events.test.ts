@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { EventNormalizer, CompletionGate } from '../src/events.js';
 import { KINDS } from '../src/types.js';
@@ -142,4 +142,31 @@ it('freezes per-call estimates into the turn and marks incomplete pricing covera
   expect(result.cost?.usd).toBeCloseTo(0.0006);
   rate = 100;
   expect(result.cost?.usd).toBeCloseTo(0.0006);
+});
+it.each([
+  ['negative', { inputTokens: -1, outputTokens: 2 }],
+  ['fractional', { inputTokens: 1.5, outputTokens: 2 }],
+  ['non-finite', { inputTokens: 1, outputTokens: Infinity }],
+  ['NaN cache', { inputTokens: 1, outputTokens: 2, cacheReadTokens: NaN }],
+  ['missing', { outputTokens: 2 }],
+  ['wrong-type', { inputTokens: '1', outputTokens: 2 }],
+  ['unsafe total', { inputTokens: 1, outputTokens: 2, totalTokens: 2 ** 53 }],
+])('marks %s usage counters incomplete without persisting them', (_label, usage) => {
+  const priceCall = vi.fn(() => ({ usd: 1, fetchedAt: 1000, stale: false }));
+  const n = new EventNormalizer(priceCall);
+  n.observe('s', '', event('turn/start', { turn: 1 }), false);
+  n.observe('s', '', response(1, { inputTokens: 10, outputTokens: 2, totalTokens: 12 }), false, context);
+  n.observe('s', '', response(1, usage), false, context);
+  const result = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)!;
+  expect(result.usageComplete).toBe(false);
+  expect(priceCall).toHaveBeenCalledTimes(1);
+  expect(result.runs).toEqual([{ provider: 'provider', model: 'model-a', effort: 'high', inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, calls: 2, reportedCalls: 1 }]);
+  expect(result.cost).toMatchObject({ usd: 1, calls: 2, pricedCalls: 1 });
+});
+it('never emits invalid timestamps or durations', () => {
+  const n = new EventNormalizer();
+  n.observe('s', '', event('turn/start', { turn: 1 }, NaN), false);
+  const result = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }, -1), false)!;
+  expect(Number.isFinite(result.time) && result.time > 0).toBe(true);
+  expect(result).not.toHaveProperty('durationMs');
 });

@@ -54,7 +54,7 @@ Slack notifications also show an **estimated API cost in USD** for exact `openai
 
 The plugin downloads `https://models.dev/api.json` in the background on startup when its cache is missing or more than 24 hours old, then checks hourly for a refresh. Validated prices are saved in `pricing.json` beside `state.json`, so they survive restarts. Failed refreshes keep the last successful cache and retry after an hour. Notifications never wait for pricing downloads: unavailable prices are marked **Unavailable**, and prices more than 24 hours old are marked **stale cache**.
 
-Each reported call is priced separately using uncached input, output, cache-read, and cache-write counts and applicable catalog context-size tiers. Reasoning tokens are not added again to output tokens. Missing models, rates, or usage are never treated as free: partial estimates show how many calls could be priced. The per-turn estimate is saved with the notification so retries and restarts preserve the original amount. Prices are downloaded without sending prompts, session information, or token usage to Models.dev.
+Each reported call is priced separately using uncached input, output, cache-read, and cache-write counts and applicable catalog context-size tiers. Reasoning tokens are not added again to output tokens. Missing models, rates, or usage, and usage counters that are not safe nonnegative integers, are never treated as free: partial estimates show how many calls could be priced. The per-turn estimate is saved with the notification so retries and restarts preserve the original amount. Prices are downloaded without sending prompts, session information, or token usage to Models.dev.
 
 ## Events
 
