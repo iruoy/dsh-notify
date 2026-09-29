@@ -18,8 +18,9 @@ export class BrowserStream {
     return `id: ${entry.seq}\nevent: notice\ndata: ${JSON.stringify({ seq: entry.seq, notice })}\n\n`;
   }
   private eligible(entry: HistoryEntry): boolean {
-    const browser = this.store.state.settings.browser;
-    return entry.browser !== 'disabled' && browser.enabled && browser.events[entry.notice.kind];
+    const { browser, notifySubagents } = this.store.state.settings;
+    return entry.browser !== 'disabled' && browser.enabled && browser.events[entry.notice.kind]
+      && (!entry.notice.isSubagent || notifySubagents);
   }
   connect(res: ServerResponse, cursor?: number): void {
     if (this.clients.size >= 50) { res.writeHead(503); res.end(); return; }

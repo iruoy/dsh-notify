@@ -61,6 +61,25 @@ describe('protected settings and SSE API', async () => {
     await s.store.update({ revision: 1, settings });
     expect((await s.request('/events?after=0')).output).not.toContain('event: notice');
   });
+  it('applies the current browser subagent opt-out to retained notices and advances the replay cursor', async () => {
+    const s = await setup();
+    const settings = s.store.view(); settings.notifySubagents = true;
+    await s.store.update({ revision: settings.revision, settings });
+    const root = (await s.store.add(notice('root')))!;
+    const child = (await s.store.add({ ...notice('child'), isSubagent: true }))!;
+    expect(child.browser).toBe('waiting');
+    expect((await s.request('/events?after=0')).output).toContain('"id":"child"');
+    const disabled = s.store.view(); disabled.notifySubagents = false;
+    await s.store.update({ revision: disabled.revision, settings: disabled });
+    const replay = await s.request('/events?after=0');
+    expect(replay.output).toContain('"id":"root"');
+    expect(replay.output).not.toContain('"id":"child"');
+    expect(replay.output).toContain(`event: cursor\ndata: ${child.seq}\n\n`);
+    const live = await s.request(`/events?after=${child.seq}`);
+    s.stream.publish(child); s.stream.publish(root);
+    expect(live.output).not.toContain('"id":"child"');
+    expect(live.output).toContain('"id":"root"');
+  });
   it('validates stream cursors and records real browser receipts', async () => {
     const s = await setup(); expect((await s.request('/events?after=not-a-number')).status).toBe(400);
     await s.store.add(notice()); expect((await s.request('/ack', 'POST', { seq: 1, delivered: true })).status).toBe(200);
