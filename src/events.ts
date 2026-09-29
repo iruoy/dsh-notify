@@ -58,7 +58,8 @@ export class EventNormalizer {
     const config = context.config;
     const source = event.type === 'assistant/message' ? event.data.message.source : config;
     const provider = source?.provider, model = source?.model;
-    const effort = config && config.provider === provider && config.model === model ? config.reasoningEffort : undefined;
+    // Effort is optional metadata; a malformed host value must not make the whole notice unpersistable.
+    const effort = config && config.provider === provider && config.model === model && typeof config.reasoningEffort === 'string' ? config.reasoningEffort : undefined;
     if (active.cost) active.cost.calls++;
     if (!provider || !model) active.complete = false;
     else {
