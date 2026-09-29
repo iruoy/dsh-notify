@@ -1,6 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeJson } from './persistence.js';
+import { isCount } from './state.js';
 
 export const PRICING_URL = 'https://models.dev/api.json';
 export const PRICING_TTL = 24 * 60 * 60 * 1000;
@@ -131,7 +132,7 @@ export class PricingCache {
     if (!snapshot || !models || !Object.hasOwn(models, model)) return;
     const route = models[model];
     const input = usage.inputTokens, output = usage.outputTokens, read = usage.cacheReadTokens ?? 0, write = usage.cacheWriteTokens ?? 0;
-    if (![input, output, read, write].every(n => Number.isSafeInteger(n) && n >= 0)) return;
+    if (![input, output, read, write].every(isCount)) return;
     // DSH inputTokens excludes cache reads/writes; reasoning is already included in output.
     const context = input + read + write;
     const selected = route.tiers?.findLast(tier => context > tier.threshold) ?? route;
