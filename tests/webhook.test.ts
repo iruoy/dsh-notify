@@ -4,6 +4,18 @@ import { fixture, notice, WEBHOOK } from './fixtures.js';
 import { Store } from '../src/store.js';
 const clean: (() => void)[] = []; afterEach(() => clean.splice(0).forEach(fn => fn()));
 function setup(fetcher: typeof fetch) { const f = fixture(); const q = new SlackQueue(f.store, fetcher); clean.push(() => { q.dispose(); f.cleanup(); }); return { ...f, q }; }
+it('never sends child input without Slack opt-in, and includes it after explicit opt-in', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok'));
+  const { store, q } = setup(fetcher);
+  const child = { ...notice('child:error'), kind: 'error' as const, isSubagent: true, input: 'PRIVATE CHILD INPUT' };
+  store.add(child); await q.tick();
+  expect(fetcher).not.toHaveBeenCalled();
+  const settings = store.view(); settings.slack.notifySubagents = true;
+  store.update({ revision: settings.revision, settings });
+  store.add(child); await q.tick();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][1]?.body).toContain('PRIVATE CHILD INPUT');
+});
 it('honors Retry-After seconds/date and exponential fallback', () => {
   expect(retryDelay('120', 0)).toBe(120000);
   expect(retryDelay(new Date(60000).toUTCString(), 0, 0)).toBe(60000);

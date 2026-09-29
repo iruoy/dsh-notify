@@ -6,6 +6,7 @@ export declare class Store {
     state: State;
     private path;
     constructor(directory: string, baseUrl?: string);
+    private slackAgentAllowed;
     /** Commit a complete snapshot, fsync before rename; the secret is never a separate partial write. */
     private persist;
     change(fn: (state: State) => void): void;

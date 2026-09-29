@@ -70,7 +70,7 @@ All seven events are enabled by default for both destinations. Browser and Slack
 | `interrupted` | DSH reports an interrupted turn during recovery |
 | `approval` | Approval requested |
 
-**Notify for subagents** is off by default. Enable it to receive notifications for child agents as well.
+**Browser notifications for subagents** and **Slack notifications for subagents** are separate opt-ins, both off by default. Slack never sends child completions, even after opt-in; other selected child events can be sent. Child terminal and approval notices can include human input, independently of the summary setting. Question notices include only a session identifier, not the question text.
 
 **Include response summaries in Slack** is also off by default. Enabling it adds up to 1,500 characters of assistant response text. Summaries may contain code or sensitive task details. Session titles are included regardless of this setting.
 
@@ -82,9 +82,9 @@ Test buttons work independently of event selections.
 
 - Browser connections can replay missed notifications from the last 200 stored events after reconnecting. A first-time browser starts with new events.
 - Slack keeps a persistent queue of up to 100 pending notifications, which survives DSH restarts.
-- On upgrade, queued task completions without an agent classification are cancelled, including main-task completions: older records cannot distinguish them from subagents. Identified main-task completions and other event types remain queued; subagent completions are cancelled.
+- On upgrade, queued task completions without an agent classification are cancelled, including main-task completions: older records cannot distinguish them from subagents. Identified main-task completions remain queued; subagent completions are cancelled. Queued child events from older releases are also cancelled unless Slack subagent delivery is explicitly enabled.
 - Network failures, rate limits, and Slack server errors retry up to six total attempts. Rate-limit responses respect Slack's requested retry delay.
-- Removing or replacing a webhook, disabling Slack, or deselecting an event cancels affected pending deliveries. Requests already in flight may still arrive.
+- Removing or replacing a webhook, disabling Slack or its subagent opt-in, or deselecting an event cancels affected pending deliveries. Requests already in flight may still arrive.
 
 Browser delivery status indicates that a browser accepted the notification; the operating system may still suppress it. Sleeping computers and suspended tabs can delay delivery. Separate devices or browser profiles can each receive a copy.
 

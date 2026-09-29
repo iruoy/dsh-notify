@@ -45,7 +45,7 @@ it('runs in Cordis, filters subagents, delivers approvals immediately and flushe
 it('keeps child failures and questions on Slack while suppressing child completions', async () => {
   const f = fixture();
   const settings = f.store.view();
-  f.store.update({ revision: settings.revision, settings: { ...settings, notifySubagents: true } });
+  f.store.update({ revision: settings.revision, settings: { ...settings, notifySubagents: true, slack: { ...settings.slack, notifySubagents: true } } });
   const ctx = new Context();
   const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
   const root = { id: 'root', status: 'idle' }, child = { id: 'child', status: 'idle' };

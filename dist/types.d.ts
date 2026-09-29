@@ -13,6 +13,7 @@ export interface Settings {
         enabled: boolean;
         events: EventSwitches;
         includeSummary: boolean;
+        notifySubagents: boolean;
     };
 }
 export interface SettingsView extends Settings {

@@ -24,12 +24,12 @@ export class Store {
             this.state = { version: 1, revision: 0, settings: defaults(baseUrl), webhook: '', sequence: 0, history: [], queue: [], seen: [] };
             this.persist();
         }
-        // Legacy completions have no agent classification; they cannot safely be sent
-        // under the main-task-only policy. Cancel them before the queue starts.
-        if (this.state.queue.some(item => item.notice.kind === 'completed' && item.notice.isSubagent !== false)) {
+        // Cancel legacy completions and child work not explicitly allowed by the
+        // destination policy before the queue starts (including pre-opt-in releases).
+        if (this.state.queue.some(item => !this.slackAgentAllowed(item.notice))) {
             this.change(s => {
                 s.queue = s.queue.filter(item => {
-                    if (item.notice.kind !== 'completed' || item.notice.isSubagent === false)
+                    if (this.slackAgentAllowed(item.notice))
                         return true;
                     const history = s.history.find(h => h.seq === item.seq);
                     if (history) {
@@ -40,6 +40,11 @@ export class Store {
                 });
             });
         }
+    }
+    slackAgentAllowed(notice, slack = this.state.settings.slack) {
+        if (notice.kind === 'completed')
+            return notice.isSubagent === false;
+        return !notice.isSubagent || slack.notifySubagents;
     }
     /** Commit a complete snapshot, fsync before rename; the secret is never a separate partial write. */
     persist(next = this.state) {
@@ -81,7 +86,7 @@ export class Store {
             const changed = webhook !== s.webhook;
             s.webhook = webhook;
             s.queue = s.queue.filter(item => {
-                const keep = !changed && !!webhook && settings.slack.enabled && settings.slack.events[item.notice.kind];
+                const keep = !changed && !!webhook && settings.slack.enabled && settings.slack.events[item.notice.kind] && this.slackAgentAllowed(item.notice, settings.slack);
                 if (!keep) {
                     const h = s.history.find(h => h.seq === item.seq);
                     if (h) {
@@ -104,7 +109,7 @@ export class Store {
             return;
         const { browser, slack } = this.state.settings;
         const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
-        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && !(notice.isSubagent && notice.kind === 'completed');
+        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && this.slackAgentAllowed({ ...notice, isSubagent: notice.isSubagent ?? false });
         if (!toBrowser && !toSlack)
             return;
         let entry;

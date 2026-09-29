@@ -327,6 +327,11 @@ function SettingsSection({ runtime }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EventChoices, { destination: "Slack", value: settings.slack.events, onChange: (events) => setSettings({ ...settings, slack: { ...settings.slack, events } }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Slack notifications for subagents" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.slack.notifySubagents, label: "Slack notifications for subagents", onChange: (checked) => setSettings({ ...settings, slack: { ...settings.slack, notifySubagents: checked } }) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Off by default. Child completions are never sent to Slack; other child events may include human input." }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dn-choice", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Include response summaries in Slack" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: settings.slack.includeSummary, label: "Include response summaries in Slack", onChange: (checked) => setSettings({ ...settings, slack: { ...settings.slack, includeSummary: checked } }) })
         ] }),

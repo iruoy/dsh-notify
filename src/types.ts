@@ -9,7 +9,7 @@ export interface Settings {
   notifySubagents: boolean;
   baseUrl: string;
   browser: { enabled: boolean; events: EventSwitches };
-  slack: { enabled: boolean; events: EventSwitches; includeSummary: boolean };
+  slack: { enabled: boolean; events: EventSwitches; includeSummary: boolean; notifySubagents: boolean };
 }
 export interface SettingsView extends Settings { revision: number; webhookConfigured: boolean }
 export interface Notice {

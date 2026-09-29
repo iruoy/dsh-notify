@@ -9,10 +9,10 @@ const clean: (() => void)[] = [];
 function setup() { const f = fixture(); clean.push(f.cleanup); return f; }
 afterEach(() => clean.splice(0).forEach(f => f()));
 describe('durable state and privacy', () => {
-  it('defaults all seven events on, summaries and subagents off', () => {
+  it('defaults all events on, summaries and destination subagent opt-ins off', () => {
     const { store } = setup();
     for (const k of KINDS) expect(store.view().browser.events[k] && store.view().slack.events[k]).toBe(true);
-    expect(store.view()).toMatchObject({ notifySubagents: false, slack: { includeSummary: false } });
+    expect(store.view()).toMatchObject({ notifySubagents: false, slack: { includeSummary: false, notifySubagents: false } });
   });
   it('persists a private queue, dedupe and sequence across restart', () => {
     const { store, dir } = setup(); store.add({ ...notice(), summary: 'PRIVATE' });
@@ -95,14 +95,39 @@ describe('URLs', () => {
 });
 
 
-it('sends child failures and approvals to Slack but only completes main tasks', () => {
+it('requires a separate Slack subagent opt-in and cancels child work on opt-out', () => {
   const f = fixture();
   try {
-    f.store.add({ ...notice('child:done'), isSubagent: true });
-    f.store.add({ ...notice('child:failed'), kind: 'error', isSubagent: true });
-    f.store.add({ ...notice('child:question'), kind: 'approval', isSubagent: true });
+    for (const kind of KINDS) expect(f.store.add({ ...notice(`disabled:${kind}`), kind, isSubagent: true, input: 'PRIVATE' })).toBeUndefined();
+    expect(f.store.state.queue).toEqual([]);
+    const settings = f.store.view();
+    settings.slack.notifySubagents = true;
+    f.store.update({ revision: settings.revision, settings });
+    for (const kind of KINDS) f.store.add({ ...notice(`child:${kind}`), kind, isSubagent: true });
     f.store.add(notice('root:done'));
-    expect(f.store.state.queue.map(item => item.notice.id)).toEqual(['child:failed', 'child:question', 'root:done']);
+    expect(f.store.state.queue.map(item => item.notice.kind)).toEqual([...KINDS.filter(k => k !== 'completed'), 'completed']);
     expect(f.store.state.history.filter(item => item.notice.isSubagent).every(item => item.browser === 'disabled')).toBe(true);
+    settings.slack.notifySubagents = false;
+    f.store.update({ revision: f.store.view().revision, settings });
+    expect(f.store.state.queue.map(item => item.notice.id)).toEqual(['root:done']);
+    expect(f.store.state.history.filter(item => item.notice.isSubagent).every(item => item.slack === 'cancelled')).toBe(true);
+  } finally { f.cleanup(); }
+});
+
+it('defaults missing persisted Slack subagent fields to false and cancels legacy child work', () => {
+  const f = fixture();
+  try {
+    const settings = f.store.view(); settings.slack.notifySubagents = true;
+    f.store.update({ revision: settings.revision, settings });
+    f.store.add({ ...notice('child:error'), kind: 'error', isSubagent: true });
+    f.store.add(notice('root:done'));
+    const raw = structuredClone(f.store.state);
+    delete (raw.settings.slack as Partial<typeof raw.settings.slack>).notifySubagents;
+    writeFileSync(join(f.dir, 'state.json'), JSON.stringify(raw));
+    const restarted = new Store(f.dir);
+    expect(restarted.view().slack.notifySubagents).toBe(false);
+    expect(restarted.state.queue.map(item => item.notice.id)).toEqual(['root:done']);
+    expect(restarted.state.history[0].slack).toBe('cancelled');
+    expect(new Store(f.dir).state).toEqual(restarted.state);
   } finally { f.cleanup(); }
 });

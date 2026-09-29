@@ -8,7 +8,7 @@ export const Config: Schema<PluginConfig> = Schema.object({
 });
 const all = (): EventSwitches => Object.fromEntries(KINDS.map(k => [k, true])) as EventSwitches;
 export function defaults(baseUrl = ''): Settings {
-  return { notifySubagents: false, baseUrl: validateBaseUrl(baseUrl), browser: { enabled: true, events: all() }, slack: { enabled: true, events: all(), includeSummary: false } };
+  return { notifySubagents: false, baseUrl: validateBaseUrl(baseUrl), browser: { enabled: true, events: all() }, slack: { enabled: true, events: all(), includeSummary: false, notifySubagents: false } };
 }
 export class ValidationError extends Error {}
 export function record(value: unknown): Record<string, unknown> {
@@ -47,5 +47,5 @@ export function validateSettings(value: unknown): Settings {
   };
   return { notifySubagents: bool(s.notifySubagents), baseUrl: validateBaseUrl(s.baseUrl),
     browser: { enabled: bool(browser.enabled), events: events(browser.events) },
-    slack: { enabled: bool(slack.enabled), events: events(slack.events), includeSummary: bool(slack.includeSummary) } };
+    slack: { enabled: bool(slack.enabled), events: events(slack.events), includeSummary: bool(slack.includeSummary), notifySubagents: bool(slack.notifySubagents ?? false) } };
 }

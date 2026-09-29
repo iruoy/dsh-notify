@@ -6,7 +6,7 @@ export const Config = Schema.object({
 });
 const all = () => Object.fromEntries(KINDS.map(k => [k, true]));
 export function defaults(baseUrl = '') {
-    return { notifySubagents: false, baseUrl: validateBaseUrl(baseUrl), browser: { enabled: true, events: all() }, slack: { enabled: true, events: all(), includeSummary: false } };
+    return { notifySubagents: false, baseUrl: validateBaseUrl(baseUrl), browser: { enabled: true, events: all() }, slack: { enabled: true, events: all(), includeSummary: false, notifySubagents: false } };
 }
 export class ValidationError extends Error {
 }
@@ -61,5 +61,5 @@ export function validateSettings(value) {
     };
     return { notifySubagents: bool(s.notifySubagents), baseUrl: validateBaseUrl(s.baseUrl),
         browser: { enabled: bool(browser.enabled), events: events(browser.events) },
-        slack: { enabled: bool(slack.enabled), events: events(slack.events), includeSummary: bool(slack.includeSummary) } };
+        slack: { enabled: bool(slack.enabled), events: events(slack.events), includeSummary: bool(slack.includeSummary), notifySubagents: bool(slack.notifySubagents ?? false) } };
 }

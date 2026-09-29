@@ -64,6 +64,8 @@ export function SettingsSection({ runtime }: Props) {
         <p className="dn-muted">Stored privately on the DSH host. The saved URL is never returned to your browser.</p>
         <div className="dn-actions"><Button variant="outline" type="button" disabled={!view.webhookConfigured} onClick={() => { setRemoveWebhook(!removeWebhook); setWebhook(''); }}>{removeWebhook ? 'Keep webhook' : 'Remove webhook'}</Button><Button variant="outline" type="button" disabled={!view.webhookConfigured || !!webhook || removeWebhook} onClick={() => void action(async () => { await request('/test-slack', 'POST'); setMessage('Slack accepted the test notification.'); })}>Send Slack test</Button></div>
         <EventChoices destination="Slack" value={settings.slack.events} onChange={events => setSettings({ ...settings, slack: { ...settings.slack, events } })} />
+        <label className="dn-choice"><span>Slack notifications for subagents</span><Switch checked={settings.slack.notifySubagents} label="Slack notifications for subagents" onChange={checked => setSettings({ ...settings, slack: { ...settings.slack, notifySubagents: checked } })} /></label>
+        <p className="dn-muted">Off by default. Child completions are never sent to Slack; other child events may include human input.</p>
         <label className="dn-choice"><span>Include response summaries in Slack</span><Switch checked={settings.slack.includeSummary} label="Include response summaries in Slack" onChange={checked => setSettings({ ...settings, slack: { ...settings.slack, includeSummary: checked } })} /></label>
         <p className="dn-muted">Off by default. Summaries may contain code or sensitive task details.</p>
       </fieldset>
