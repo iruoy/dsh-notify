@@ -68,6 +68,28 @@ it('retains an in-memory cursor when localStorage is unavailable', () => {
   s.runtime.refresh();
   expect(Source.instances[1].url).toBe('/api/dsh-notify/events?after=4');
 });
+it.each([
+  { storageFails: false, resetCursor: 0 },
+  { storageFails: false, resetCursor: 40 },
+  { storageFails: true, resetCursor: 0 },
+  { storageFails: true, resetCursor: 40 },
+])('recovers after the server cursor resets to $resetCursor (storage unavailable: $storageFails)', ({ storageFails, resetCursor }) => {
+  const s = setup(storageFails);
+  s.source.emit('cursor', 100);
+  // EventSource reconnects after the server recreates or restores its state.
+  s.source.emit('gap', { message: 'Replay window exceeded; check recent deliveries.' });
+  s.source.emit('cursor', resetCursor);
+  if (!storageFails) expect(s.values.get('dsh-notify:cursor:v1')).toBe(String(resetCursor));
+  const seq = resetCursor + 1;
+  s.source.emit('notice', { seq, notice: notice('after-reset') });
+  s.source.emit('notice', { seq, notice: notice('duplicate') });
+  expect(s.show).toHaveBeenCalledTimes(1);
+  if (!storageFails) expect(s.values.get('dsh-notify:cursor:v1')).toBe(String(seq));
+  s.show.mockImplementationOnce(() => { throw new Error('Display failed'); });
+  s.source.emit('notice', { seq: seq + 1, notice: notice('failed') });
+  s.runtime.refresh();
+  expect(Source.instances[1].url).toBe(`/api/dsh-notify/events?after=${seq}`);
+});
 it('retries successful receipts without redisplaying and stops retries on disposal', async () => {
   vi.useFakeTimers();
   const s = setup();

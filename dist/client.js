@@ -156,7 +156,7 @@ var BrowserRuntime = class {
   }
   saveCursor(seq) {
     if (!Number.isSafeInteger(seq) || seq < 0) return;
-    this.lastCursor = Math.max(seq, this.cursor() ?? 0);
+    this.lastCursor = seq;
     try {
       localStorage.setItem(CURSOR, String(this.lastCursor));
     } catch {

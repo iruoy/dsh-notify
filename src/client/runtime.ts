@@ -82,7 +82,8 @@ export class BrowserRuntime {
   }
   private saveCursor(seq: number): void {
     if (!Number.isSafeInteger(seq) || seq < 0) return;
-    this.lastCursor = Math.max(seq, this.cursor() ?? 0);
+    // Server cursors are authoritative, including after persisted state is reset.
+    this.lastCursor = seq;
     try { localStorage.setItem(CURSOR, String(this.lastCursor)); } catch { /* In-memory cursor survives same-tab recovery. */ }
   }
   private acknowledge(seq: number): void {
