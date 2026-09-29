@@ -65,6 +65,19 @@ it('renders workspace, input, model, effort, tokens and partial accounting as pl
   for (const value of ['Workspace: /work/project', 'Input:', 'Model: p/m', 'Effort: high', '2,000 total', '1,200 input', '300 output', '500 read', 'Tokens: Not reported', 'Effort: Not reported', 'usage is partial']) expect(body).toContain(value);
   expect(body).not.toContain('mrkdwn'); expect(body).not.toContain('Cost:');
 });
+it('bounds model blocks and preserves detail ordering when rendering large notices', () => {
+  const runs = Array.from({ length: 41 }, (_, i) => ({ provider: 'p', model: i === 0 ? 'm'.repeat(4000) : `m-${i}`,
+    inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1, reportedCalls: 1 }));
+  const payload = slackPayload({ ...notice(), input: 'Human input', summary: 'Response summary', runs, usageComplete: false }, 'https://dsh.example.com') as { blocks: any[] };
+  expect(payload.blocks[0].type).toBe('header');
+  expect(payload.blocks[2].text.text).toBe('Input:\nHuman input');
+  expect(payload.blocks[3].text.text).toHaveLength(2900);
+  expect(payload.blocks[43].text.text).toBe('1 additional model/effort combinations omitted.');
+  expect(payload.blocks[44].type).toBe('context');
+  expect(payload.blocks[45].text.text).toBe('Response summary');
+  expect(payload.blocks[46].type).toBe('actions');
+  expect(payload.blocks).toHaveLength(47);
+});
 it('shows estimated costs, partial coverage, stale prices, and unavailable prices explicitly', () => {
   const cost = { usd: 0.02345, calls: 3, pricedCalls: 2, fetchedAt: Date.UTC(2026, 8, 18), stale: true };
   const body = JSON.stringify(slackPayload({ ...notice(), cost }, ''));

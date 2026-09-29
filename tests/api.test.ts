@@ -65,6 +65,17 @@ describe('protected settings and SSE API', () => {
     s.store.add(notice()); expect((await s.request('/ack', 'POST', { seq: 1, delivered: true })).status).toBe(200);
     expect(s.store.history()[0].browser).toBe('delivered');
   });
+  it('redacts unexpected errors and destroys streams that fail after headers are sent', async () => {
+    const s = setup();
+    vi.spyOn(s.store, 'view').mockImplementationOnce(() => { throw new Error(WEBHOOK); });
+    const response = await s.request('/settings');
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.output)).toEqual({ error: 'DSH Notify request failed.' });
+    vi.spyOn(s.stream, 'connect').mockImplementationOnce(res => { res.writeHead(200); throw new Error(WEBHOOK); });
+    const stream = await s.request('/events');
+    expect(stream.destroyed).toBe(true);
+    expect(stream.output).not.toContain(WEBHOOK);
+  });
   it('caps SSE clients and frees capacity when a client closes', async () => {
     const s = setup();
     const clients = [];

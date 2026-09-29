@@ -23,35 +23,45 @@ async function body(req) {
         throw new ValidationError('Invalid JSON.');
     }
 }
+function rejectRequest(req, res, connection, methods) {
+    const rejection = connection.requestRejection(req);
+    if (rejection) {
+        json(res, rejection, { error: 'DSH authentication or origin check failed.' });
+        return true;
+    }
+    if (!methods.includes(req.method ?? '')) {
+        res.setHeader('allow', methods.join(', '));
+        json(res, 405, { error: 'Method not allowed.' });
+        return true;
+    }
+    // A custom header on mutations forces a CORS preflight, which this API never allows.
+    if (req.method !== 'GET' && req.headers['x-dsh-notify'] !== '1') {
+        json(res, 403, { error: 'Missing request header.' });
+        return true;
+    }
+    return false;
+}
+function requestError(res, error) {
+    if (res.headersSent) {
+        res.destroy();
+        return;
+    }
+    const status = error instanceof ConflictError ? 409 : error instanceof ValidationError ? 400 : 500;
+    const message = error instanceof ValidationError || error instanceof ConflictError ? error.message : 'DSH Notify request failed.';
+    json(res, status, { error: message });
+}
 export function registerApi(web, connection, store, stream, queue) {
     const disposers = [];
     let testing = false, lastTest = 0;
     const route = (path, methods, handler) => {
         disposers.push(web.register({ kind: 'exact', path: API + path, handler: async (req, res) => {
                 try {
-                    const rejection = connection.requestRejection(req);
-                    if (rejection) {
-                        json(res, rejection, { error: 'DSH authentication or origin check failed.' });
+                    if (rejectRequest(req, res, connection, methods))
                         return;
-                    }
-                    if (!methods.includes(req.method ?? '')) {
-                        res.setHeader('allow', methods.join(', '));
-                        json(res, 405, { error: 'Method not allowed.' });
-                        return;
-                    }
-                    // A custom header on mutations forces a CORS preflight, which this API never allows.
-                    if (req.method !== 'GET' && req.headers['x-dsh-notify'] !== '1') {
-                        json(res, 403, { error: 'Missing request header.' });
-                        return;
-                    }
                     await handler(req, res);
                 }
                 catch (error) {
-                    if (res.headersSent) {
-                        res.destroy();
-                        return;
-                    }
-                    json(res, error instanceof ConflictError ? 409 : error instanceof ValidationError ? 400 : 500, { error: error instanceof ValidationError || error instanceof ConflictError ? error.message : 'DSH Notify request failed.' });
+                    requestError(res, error);
                 }
             } }));
     };

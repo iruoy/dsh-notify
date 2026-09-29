@@ -5,42 +5,46 @@ import type { Store } from './store.js';
 export function sessionUrl(baseUrl: string, sessionId: string): string {
   const url = new URL(baseUrl); url.searchParams.set('dsh-notify-session', sessionId); return url.href;
 }
+function costDetail(notice: Notice): string | undefined {
+  const cost = notice.cost;
+  if (!cost) return;
+  const label = notice.runs?.some(run => publicPricingProvider(run.provider) !== run.provider) ? 'Estimated API-equivalent cost' : 'Estimated API cost';
+  if (!cost.pricedCalls) return `${label}: Unavailable`;
+  const value = cost.usd > 0 && cost.usd < 0.0001 ? '<$0.0001' : `~$${cost.usd.toFixed(4)}`;
+  const coverage = cost.pricedCalls < cost.calls ? ` (partial: ${cost.pricedCalls}/${cost.calls} calls priced)` : '';
+  return `${label}: ${value} USD${coverage}`;
+}
+function runBlocks(notice: Notice): object[] {
+  if (!notice.runs?.length) return [];
+  const count = (n: number): string => n.toLocaleString('en-US');
+  const runs = notice.runs.slice(0, 40).map(run => {
+    const lines = [`Model: ${run.provider}/${run.model}`, `Effort: ${run.effort ?? 'Not reported'}`];
+    if (run.reportedCalls) {
+      const total = run.totalTokens === undefined ? '' : `${count(run.totalTokens)} total · `;
+      lines.push(`Tokens: ${total}${count(run.inputTokens)} input · ${count(run.outputTokens)} output`);
+      if (run.cacheReadTokens || run.cacheWriteTokens) lines.push(`Cache: ${count(run.cacheReadTokens)} read · ${count(run.cacheWriteTokens)} write`);
+    } else lines.push('Tokens: Not reported');
+    return lines.join('\n');
+  });
+  // Keep each section within Slack's limits, including unusually long route names.
+  const blocks: object[] = runs.map(run => ({ type: 'section', text: { type: 'plain_text', text: run.slice(0, 2900) } }));
+  if (notice.runs.length > 40) blocks.push({ type: 'section', text: { type: 'plain_text', text: `${notice.runs.length - 40} additional model/effort combinations omitted.` } });
+  if (!notice.usageComplete) blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: 'Token usage is partial; some calls did not report usage.' }] });
+  return blocks;
+}
 export function slackPayload(notice: Notice, baseUrl: string): object {
   const title = `${LABELS[notice.kind]} · ${notice.title}`;
   const details = [`Session: ${notice.title}`];
   if (notice.workspace) details.push(`Workspace: ${notice.workspace}`);
   if (notice.durationMs !== undefined) details.push(`Duration: ${Math.floor(notice.durationMs / 60000)}m ${Math.floor(notice.durationMs / 1000) % 60}s`);
-  if (notice.cost) {
-    const cost = notice.cost;
-    const label = notice.runs?.some(run => publicPricingProvider(run.provider) !== run.provider) ? 'Estimated API-equivalent cost' : 'Estimated API cost';
-    if (!cost.pricedCalls) details.push(`${label}: Unavailable`);
-    else {
-      const value = cost.usd > 0 && cost.usd < 0.0001 ? '<$0.0001' : `~$${cost.usd.toFixed(4)}`;
-      const coverage = cost.pricedCalls < cost.calls ? ` (partial: ${cost.pricedCalls}/${cost.calls} calls priced)` : '';
-      details.push(`${label}: ${value} USD${coverage}`);
-    }
-  }
+  const cost = costDetail(notice);
+  if (cost) details.push(cost);
   const blocks: object[] = [
     { type: 'header', text: { type: 'plain_text', text: LABELS[notice.kind], emoji: true } },
     { type: 'section', text: { type: 'plain_text', text: details.join('\n').slice(0, 2900) } },
   ];
   if (notice.input) blocks.push({ type: 'section', text: { type: 'plain_text', text: `Input:\n${notice.input.slice(0, 1500)}` } });
-  if (notice.runs?.length) {
-    const count = (n: number): string => n.toLocaleString('en-US');
-    const runs = notice.runs.map(run => {
-      const lines = [`Model: ${run.provider}/${run.model}`, `Effort: ${run.effort ?? 'Not reported'}`];
-      if (run.reportedCalls) {
-        const total = run.totalTokens === undefined ? '' : `${count(run.totalTokens)} total · `;
-        lines.push(`Tokens: ${total}${count(run.inputTokens)} input · ${count(run.outputTokens)} output`);
-        if (run.cacheReadTokens || run.cacheWriteTokens) lines.push(`Cache: ${count(run.cacheReadTokens)} read · ${count(run.cacheWriteTokens)} write`);
-      } else lines.push('Tokens: Not reported');
-      return lines.join('\n');
-    });
-    // Keep each section within Slack's limits, including unusually long route names.
-    for (const run of runs.slice(0, 40)) blocks.push({ type: 'section', text: { type: 'plain_text', text: run.slice(0, 2900) } });
-    if (runs.length > 40) blocks.push({ type: 'section', text: { type: 'plain_text', text: `${runs.length - 40} additional model/effort combinations omitted.` } });
-    if (!notice.usageComplete) blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: 'Token usage is partial; some calls did not report usage.' }] });
-  }
+  blocks.push(...runBlocks(notice));
   if (notice.summary) blocks.push({ type: 'section', text: { type: 'plain_text', text: notice.summary.slice(0, 1500) } });
   if (notice.cost?.pricedCalls && notice.cost.fetchedAt !== undefined) blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: `Models.dev public list prices · refreshed ${new Date(notice.cost.fetchedAt).toISOString().slice(0, 10)}${notice.cost.stale ? ' · stale cache' : ''}` }] });
   if (baseUrl && notice.sessionId) blocks.push({ type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: 'Open in DSH' }, url: sessionUrl(baseUrl, notice.sessionId) }] });

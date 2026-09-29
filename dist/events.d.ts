@@ -11,6 +11,12 @@ export declare class EventNormalizer {
     private turns;
     constructor(priceCall?: PriceCall | undefined);
     observe(sessionId: string, title: string | undefined, event: SessionEvent, includeSummary: boolean, context?: NoticeContext): Notice | undefined;
+    private startTurn;
+    private appendHumanInput;
+    private recordAssistant;
+    private runFor;
+    private recordUsage;
+    private finishTurn;
     forget(id: string): void;
 }
 /** DSH appends turn/end before setting idle. Hold terminal notifications until idle. */
