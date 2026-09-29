@@ -29,8 +29,9 @@
     "README.md",
     "LICENSE"
   ],
+  "packageManager": "pnpm@11.26.0",
   "engines": {
-    "node": ">=22"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "keywords": [
     "dsh-plugin",
@@ -42,7 +43,7 @@
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.client.json",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "pnpm run typecheck && pnpm test && pnpm run build",
     "test:browser": "playwright test"
   },
   "dsh": {

@@ -58,7 +58,7 @@ Each reported call is priced separately using uncached input, output, cache-read
 
 ## Events
 
-All seven events are enabled by default for both destinations. Browser and Slack event selections are independent.
+All eight events are enabled by default for both destinations. Browser and Slack event selections are independent.
 
 | Event | Notification |
 | --- | --- |
@@ -69,6 +69,7 @@ All seven events are enabled by default for both destinations. Browser and Slack
 | `max-tokens` | Token limit reached |
 | `interrupted` | DSH reports an interrupted turn during recovery |
 | `approval` | Approval requested |
+| `question` | Question asked |
 
 **Browser notifications for subagents** and **Slack notifications for subagents** are separate opt-ins, both off by default. Slack never sends child completions, even after opt-in; other selected child events can be sent. Child terminal and approval notices can include human input, independently of the summary setting. Question notices include only a session identifier, not the question text.
 
@@ -120,7 +121,7 @@ Settings controls use `Button`, `Input`, and `Switch` from DSH's shared UI primi
 
 The primitives package and its browser build dependencies are development-only: Playwright bundles the real components and their CSS for testing. The shipped plugin keeps the primitives import external and uses DSH's installed components and theme.
 
-Run `npm run check` and `npm run test:browser` before shipping changes.
+Install development dependencies with `pnpm install --frozen-lockfile` (pnpm 11.26.0). Run `pnpm run check` and `pnpm run test:browser` before shipping changes. CI runs both checks on Node 22.19.0 and 24, and verifies that rebuilding leaves `dist` unchanged.
 
 ## License
 

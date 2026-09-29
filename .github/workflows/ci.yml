@@ -5,19 +5,23 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22.19.0', '24']
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run check
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
       - run: git diff --exit-code -- dist
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: browser-test-results
+          name: browser-test-results-${{ matrix.node }}
           path: test-results/
