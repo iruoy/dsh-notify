@@ -65,6 +65,31 @@ describe('protected settings and SSE API', () => {
     s.store.add(notice()); expect((await s.request('/ack', 'POST', { seq: 1, delivered: true })).status).toBe(200);
     expect(s.store.history()[0].browser).toBe('delivered');
   });
+  it('caps SSE clients and frees capacity when a client closes', async () => {
+    const s = setup();
+    const clients = [];
+    for (let i = 0; i < 50; i++) clients.push(await s.request('/events'));
+    expect((await s.request('/events')).status).toBe(503);
+    clients[0].end();
+    expect((await s.request('/events')).status).toBe(200);
+  });
+  it('disconnects stalled SSE clients above the buffered-output ceiling', async () => {
+    const s = setup(); const res = await s.request('/events');
+    Object.defineProperty(res, 'writableLength', { value: 1_048_577 });
+    s.stream.publish(s.store.add(notice())!);
+    expect(res.destroyed).toBe(true);
+  });
+  it('excludes input and opted-in response summaries from history and SSE', async () => {
+    const s = setup(); const settings = s.store.view(); settings.slack.includeSummary = true;
+    s.store.update({ revision: settings.revision, settings });
+    s.store.add({ ...notice(), input: 'PRIVATE INPUT', summary: 'PRIVATE SUMMARY' });
+    expect(s.store.state.queue[0].notice.summary).toBe('PRIVATE SUMMARY');
+    for (const path of ['/history', '/events?after=0']) {
+      const response = await s.request(path);
+      expect(response.output).not.toContain('PRIVATE');
+      expect(response.output).not.toContain(WEBHOOK);
+    }
+  });
   it('returns a Slack test result and rate limits repeated tests', async () => {
     const s = setup(); expect((await s.request('/test-slack', 'POST')).status).toBe(200);
     expect((await s.request('/test-slack', 'POST')).status).toBe(429);

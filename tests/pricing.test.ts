@@ -57,6 +57,32 @@ it.each([{}, { openai: { models: { gpt: { cost: { input: -1, output: 1 } } } }, 
   f.advance(PRICING_TTL); f.fetcher.mockResolvedValueOnce(Response.json(bad)); await f.cache.refresh();
   expect(f.cache.estimate('anthropic', 'claude', usage)).toEqual({ ...initial, stale: true });
 });
+it('cancels catalogs exceeding 20 MiB without replacing the last good cache', async () => {
+  const f = setup(); await f.cache.refresh();
+  const saved = readFileSync(join(f.dir, 'pricing.json'), 'utf8');
+  const cancel = vi.fn();
+  f.advance(PRICING_TTL);
+  f.fetcher.mockResolvedValueOnce(new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024)); },
+    cancel,
+  })));
+  await f.cache.refresh();
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(readFileSync(join(f.dir, 'pricing.json'), 'utf8')).toBe(saved);
+  expect(f.cache.estimate('anthropic', 'claude', usage)?.stale).toBe(true);
+});
+it('passes shutdown cancellation to in-flight pricing requests', async () => {
+  const fetcher = vi.fn<typeof fetch>((_url, options) => new Promise((_resolve, reject) => {
+    options!.signal!.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+  }));
+  const f = setup(fetcher); const pending = f.cache.refresh();
+  const signal = fetcher.mock.calls[0][1]!.signal!;
+  expect(signal.aborted).toBe(false);
+  f.cache.dispose();
+  await pending;
+  expect(signal.aborted).toBe(true);
+  expect(f.cache.estimate('anthropic', 'claude', usage)).toBeUndefined();
+});
 it('recovers from corrupt disk state and does not treat zero prices as missing', async () => {
   const f = setup(); writeFileSync(join(f.dir, 'pricing.json'), '{broken');
   const data = catalog(); data.anthropic.models.claude.cost = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
