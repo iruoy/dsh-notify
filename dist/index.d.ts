@@ -16,4 +16,4 @@ declare module '@deepseek-ai/cordis' {
 export declare const name = "dsh-notify";
 export declare const inject: string[];
 export { Config };
-export declare function apply(ctx: Context, config?: PluginConfig): void;
+export declare function apply(ctx: Context, config?: PluginConfig): Promise<void>;

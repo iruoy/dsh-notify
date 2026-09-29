@@ -25,9 +25,11 @@ export declare class PricingCache {
     private timer?;
     private controller;
     private path;
-    constructor(directory: string, fetcher?: typeof fetch, now?: () => number);
+    private constructor();
+    static open(directory: string, fetcher?: typeof fetch, now?: () => number): Promise<PricingCache>;
     start(): void;
     dispose(): void;
+    close(): Promise<void>;
     refresh(): Promise<void>;
     private download;
     estimate: PriceCall;

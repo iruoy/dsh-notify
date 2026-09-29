@@ -6,6 +6,7 @@ import { registerApi, type WebServer } from '../src/api.js';
 import { BrowserStream } from '../src/browser.js';
 import { SlackQueue } from '../src/webhook.js';
 import { fixture, notice, WEBHOOK } from './fixtures.js';
+import * as persistence from '../src/persistence.js';
 class ResponseMock extends EventEmitter {
   status = 0; output = ''; headersSent = false; destroyed = false;
   writeHead(status: number) { this.status = status; this.headersSent = true; return this; }
@@ -15,8 +16,8 @@ class ResponseMock extends EventEmitter {
   destroy() { this.destroyed = true; this.emit('close'); }
 }
 const clean: (() => void)[] = []; afterEach(() => clean.splice(0).forEach(fn => fn()));
-function setup(rejected?: 401 | 403) {
-  const f = fixture(); const stream = new BrowserStream(f.store); const queue = new SlackQueue(f.store, vi.fn<typeof fetch>().mockResolvedValue(new Response('ok')));
+async function setup(rejected?: 401 | 403) {
+  const f = await fixture(); const stream = new BrowserStream(f.store); const queue = new SlackQueue(f.store, vi.fn<typeof fetch>().mockResolvedValue(new Response('ok')));
   const routes = new Map<string, Parameters<WebServer['register']>[0]['handler']>();
   const rejection = vi.fn(() => rejected);
   const dispose = registerApi({ register: r => { routes.set(r.path, r.handler); return () => routes.delete(r.path); } }, { requestRejection: rejection }, f.store, stream, queue);
@@ -28,45 +29,69 @@ function setup(rejected?: 401 | 403) {
   };
   return { ...f, stream, request, rejection, routes, dispose };
 }
-describe('protected settings and SSE API', () => {
+describe('protected settings and SSE API', async () => {
   it.each([401, 403] as const)('enforces DSH authentication on every endpoint (%s)', async status => {
-    const s = setup(status);
+    const s = await setup(status);
     for (const path of ['/settings', '/history', '/events', '/ack', '/test-slack']) expect((await s.request(path)).status).toBe(status);
     expect(s.rejection).toHaveBeenCalledTimes(5);
   });
   it('redacts secrets on reads, writes and validation failures', async () => {
-    const s = setup(); const get = await s.request('/settings'); expect(get.status).toBe(200); expect(get.output).not.toContain(WEBHOOK);
+    const s = await setup(); const get = await s.request('/settings'); expect(get.status).toBe(200); expect(get.output).not.toContain(WEBHOOK);
     const invalid = await s.request('/settings', 'PUT', { revision: 1, settings: s.store.view(), webhook: WEBHOOK + '?x=SECRET' });
     expect(invalid.status).toBe(400); expect(invalid.output).not.toContain('SECRET');
     const put = await s.request('/settings', 'PUT', { revision: 1, settings: s.store.view(), webhook: WEBHOOK });
     expect(put.status).toBe(200); expect(put.output).not.toContain(WEBHOOK);
   });
   it('rejects cross-origin simple mutations and stale settings', async () => {
-    const s = setup(); const data = { revision: 0, settings: s.store.view() };
+    const s = await setup(); const data = { revision: 0, settings: s.store.view() };
     expect((await s.request('/settings', 'PUT', data, { 'x-dsh-notify': '' })).status).toBe(403);
     expect((await s.request('/settings', 'PUT', data)).status).toBe(409);
     expect((await s.request('/settings', 'POST', data)).status).toBe(405);
   });
   it('starts fresh streams at now and replays only after Last-Event-ID', async () => {
-    const s = setup(); s.store.add(notice('1')); s.store.add(notice('2'));
+    const s = await setup(); await s.store.add(notice('1')); await s.store.add(notice('2'));
     const fresh = await s.request('/events'); expect(fresh.output).not.toContain('event: notice'); expect(fresh.output).toContain('id: 2');
     const reconnect = await s.request('/events?after=0', 'GET', undefined, { 'last-event-id': '1' });
     expect(reconnect.output).toContain('"id":"2"'); expect(reconnect.output).not.toContain('"id":"1"');
-    const next = s.store.add(notice('3'))!; s.stream.publish(next); expect(fresh.output).toContain('"id":"3"');
+    const next = (await s.store.add(notice('3')))!; s.stream.publish(next); expect(fresh.output).toContain('"id":"3"');
     s.dispose(); expect(s.routes.size).toBe(0);
   });
   it('respects disabled browser event policy during replay', async () => {
-    const s = setup(); s.store.add(notice()); const settings = s.store.view(); settings.browser.events.completed = false;
-    s.store.update({ revision: 1, settings });
+    const s = await setup(); await s.store.add(notice()); const settings = s.store.view(); settings.browser.events.completed = false;
+    await s.store.update({ revision: 1, settings });
     expect((await s.request('/events?after=0')).output).not.toContain('event: notice');
   });
   it('validates stream cursors and records real browser receipts', async () => {
-    const s = setup(); expect((await s.request('/events?after=not-a-number')).status).toBe(400);
-    s.store.add(notice()); expect((await s.request('/ack', 'POST', { seq: 1, delivered: true })).status).toBe(200);
+    const s = await setup(); expect((await s.request('/events?after=not-a-number')).status).toBe(400);
+    await s.store.add(notice()); expect((await s.request('/ack', 'POST', { seq: 1, delivered: true })).status).toBe(200);
     expect(s.store.history()[0].browser).toBe('delivered');
   });
+  it('waits for durable settings and receipt commits before returning success', async () => {
+    const s = await setup();
+    for (const kind of ['settings', 'receipt']) {
+      if (kind === 'receipt') await s.store.add(notice());
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const original = persistence.writeJson;
+      const writer = vi.spyOn(persistence, 'writeJson').mockImplementationOnce(async (path, value) => {
+        await gate; await original(path, value);
+      });
+      let finished = false;
+      const pending = (kind === 'settings'
+        ? s.request('/settings', 'PUT', { revision: s.store.view().revision, settings: s.store.view() })
+        : s.request('/ack', 'POST', { seq: 1, delivered: true })).then(response => { finished = true; return response; });
+      try {
+        await vi.waitFor(() => expect(writer).toHaveBeenCalledTimes(1));
+        expect(finished).toBe(false);
+        if (kind === 'settings') expect(s.store.view().revision).toBe(1);
+        else expect(s.store.history()[0].browser).toBe('waiting');
+      } finally { release(); }
+      expect((await pending).status).toBe(200);
+      writer.mockRestore();
+    }
+  });
   it('redacts unexpected errors and destroys streams that fail after headers are sent', async () => {
-    const s = setup();
+    const s = await setup();
     vi.spyOn(s.store, 'view').mockImplementationOnce(() => { throw new Error(WEBHOOK); });
     const response = await s.request('/settings');
     expect(response.status).toBe(500);
@@ -77,7 +102,7 @@ describe('protected settings and SSE API', () => {
     expect(stream.output).not.toContain(WEBHOOK);
   });
   it('caps SSE clients and frees capacity when a client closes', async () => {
-    const s = setup();
+    const s = await setup();
     const clients = [];
     for (let i = 0; i < 50; i++) clients.push(await s.request('/events'));
     expect((await s.request('/events')).status).toBe(503);
@@ -85,15 +110,15 @@ describe('protected settings and SSE API', () => {
     expect((await s.request('/events')).status).toBe(200);
   });
   it('disconnects stalled SSE clients above the buffered-output ceiling', async () => {
-    const s = setup(); const res = await s.request('/events');
+    const s = await setup(); const res = await s.request('/events');
     Object.defineProperty(res, 'writableLength', { value: 1_048_577 });
-    s.stream.publish(s.store.add(notice())!);
+    s.stream.publish((await s.store.add(notice()))!);
     expect(res.destroyed).toBe(true);
   });
   it('excludes input and opted-in response summaries from history and SSE', async () => {
-    const s = setup(); const settings = s.store.view(); settings.slack.includeSummary = true;
-    s.store.update({ revision: settings.revision, settings });
-    s.store.add({ ...notice(), input: 'PRIVATE INPUT', summary: 'PRIVATE SUMMARY' });
+    const s = await setup(); const settings = s.store.view(); settings.slack.includeSummary = true;
+    await s.store.update({ revision: settings.revision, settings });
+    await s.store.add({ ...notice(), input: 'PRIVATE INPUT', summary: 'PRIVATE SUMMARY' });
     expect(s.store.state.queue[0].notice.summary).toBe('PRIVATE SUMMARY');
     for (const path of ['/history', '/events?after=0']) {
       const response = await s.request(path);
@@ -102,15 +127,15 @@ describe('protected settings and SSE API', () => {
     }
   });
   it('returns a Slack test result and rate limits repeated tests', async () => {
-    const s = setup(); expect((await s.request('/test-slack', 'POST')).status).toBe(200);
+    const s = await setup(); expect((await s.request('/test-slack', 'POST')).status).toBe(200);
     expect((await s.request('/test-slack', 'POST')).status).toBe(429);
   });
 });
 
-it('does not discard a normal replay burst when Node reports backpressure', () => {
-  const f = fixture(false); const stream = new BrowserStream(f.store);
+it('does not discard a normal replay burst when Node reports backpressure', async () => {
+  const f = await fixture(false); const stream = new BrowserStream(f.store);
   try {
-    for (let i = 0; i < 100; i++) f.store.add(notice(String(i)));
+    for (let i = 0; i < 100; i++) await f.store.add(notice(String(i)));
     const res = new ResponseMock();
     res.write = (value: string) => { res.output += value; return false; };
     stream.connect(res as unknown as ServerResponse, 0);

@@ -101,6 +101,10 @@ $DSH_HOME/dsh-notify/state.json
 
 Without `DSH_HOME`, the default is `~/.dsh/dsh-notify/state.json`. State files have owner-only read/write permissions. The saved webhook is never returned to the browser; settings show only whether one is configured.
 
+State and pricing snapshots use asynchronous filesystem operations. State mutations are serialized; browser publication and successful settings/receipt responses wait for the snapshot to be written, synced, atomically renamed, and its directory synced. Readers see only the last committed state, and graceful shutdown drains accepted writes. Snapshot cloning and JSON serialization still run on the event loop, but disk I/O and syncing do not.
+
+If a state write fails, further mutations and Slack queue delivery stop rather than overwriting uncertain disk state. Check the state directory (disk space and permissions), then restart DSH. Pricing-cache failures remain non-fatal and retain the previous estimate cache.
+
 Use a separate state directory for each DSH instance. Optional Cordis configuration:
 
 ```yaml

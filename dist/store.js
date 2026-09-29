@@ -1,35 +1,43 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync, openSync, fsyncSync, closeSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { defaults, record, validateSettings, validateWebhook, ValidationError } from './config.js';
+import { writeJson } from './persistence.js';
 export class ConflictError extends Error {
 }
 export class Store {
     directory;
     state;
-    path;
-    constructor(directory, baseUrl = '') {
+    tail = Promise.resolve();
+    failed = false;
+    closed = false;
+    constructor(directory, state) {
         this.directory = directory;
-        mkdirSync(directory, { recursive: true, mode: 0o700 });
-        this.path = join(directory, 'state.json');
+        this.state = state;
+    }
+    static async open(directory, baseUrl = '') {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        let state;
+        let fresh = false;
         try {
-            const raw = JSON.parse(readFileSync(this.path, 'utf8'));
+            const raw = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
             if (raw.version !== 1 || !Array.isArray(raw.history) || !Array.isArray(raw.queue) || !Array.isArray(raw.seen) || !Number.isSafeInteger(raw.sequence) || !Number.isSafeInteger(raw.revision))
                 throw new Error('Unsupported state');
-            this.state = { ...raw, settings: validateSettings(raw.settings), webhook: raw.webhook ? validateWebhook(raw.webhook) : '' };
+            state = { ...raw, settings: validateSettings(raw.settings), webhook: raw.webhook ? validateWebhook(raw.webhook) : '' };
         }
         catch (error) {
             if (error.code !== 'ENOENT')
                 throw new Error('DSH Notify state could not be read. Restore or move state.json before restarting.');
-            this.state = { version: 1, revision: 0, settings: defaults(baseUrl), webhook: '', sequence: 0, history: [], queue: [], seen: [] };
-            this.persist();
+            state = { version: 1, revision: 0, settings: defaults(baseUrl), webhook: '', sequence: 0, history: [], queue: [], seen: [] };
+            fresh = true;
         }
-        // Cancel legacy completions and child work not explicitly allowed by the
-        // destination policy before the queue starts (including pre-opt-in releases).
-        if (this.state.queue.some(item => !this.slackAgentAllowed(item.notice))) {
-            this.change(s => {
+        const store = new Store(directory, state);
+        if (fresh)
+            await store.persist(state);
+        // Migrations finish durably before any delivery worker or API can start.
+        if (state.queue.some(item => !store.slackAgentAllowed(item.notice))) {
+            await store.change(s => {
                 s.queue = s.queue.filter(item => {
-                    if (this.slackAgentAllowed(item.notice))
+                    if (store.slackAgentAllowed(item.notice))
                         return true;
                     const history = s.history.find(h => h.seq === item.seq);
                     if (history) {
@@ -40,109 +48,125 @@ export class Store {
                 });
             });
         }
+        return store;
     }
     slackAgentAllowed(notice, slack = this.state.settings.slack) {
         if (notice.kind === 'completed')
             return notice.isSubagent === false;
         return !notice.isSubagent || slack.notifySubagents;
     }
-    /** Commit a complete snapshot, fsync before rename; the secret is never a separate partial write. */
-    persist(next = this.state) {
-        const temp = `${this.path}.${randomUUID()}.tmp`;
-        writeFileSync(temp, JSON.stringify(next), { mode: 0o600, flag: 'wx' });
-        const fd = openSync(temp, 'r');
+    async persist(next) {
         try {
-            fsyncSync(fd);
+            await writeJson(join(this.directory, 'state.json'), next);
         }
-        finally {
-            closeSync(fd);
-        }
-        renameSync(temp, this.path);
-        const dir = openSync(this.directory, 'r');
-        try {
-            fsyncSync(dir);
-        }
-        finally {
-            closeSync(dir);
+        catch {
+            // A failure after rename can leave disk ahead of memory. Do not overwrite
+            // uncertain durable state or send queued work again until a restart.
+            this.failed = true;
+            throw new Error('DSH Notify state could not be saved. Check the state directory and restart.');
         }
     }
-    change(fn) {
+    enqueue(fn) {
+        if (this.closed)
+            return Promise.reject(new Error('DSH Notify store is closed.'));
+        const pending = this.tail.then(() => {
+            this.assertHealthy();
+            return fn();
+        });
+        // Validation failures must not poison later transactions; persistence failures
+        // do, through assertHealthy. Every caller still receives its own rejection.
+        this.tail = pending.then(() => { }, () => { });
+        return pending;
+    }
+    assertHealthy() {
+        if (this.failed)
+            throw new Error('DSH Notify persistence failed. Restart before continuing delivery.');
+    }
+    async idle() { await this.tail; this.assertHealthy(); }
+    async close() { this.closed = true; await this.idle(); }
+    async commit(fn) {
         const next = structuredClone(this.state);
         fn(next);
-        this.persist(next);
+        await this.persist(next);
         this.state = next;
     }
+    change(fn) { return this.enqueue(() => this.commit(fn)); }
     view() { return { ...structuredClone(this.state.settings), revision: this.state.revision, webhookConfigured: Boolean(this.state.webhook) }; }
     update(value) {
-        const input = record(value);
-        if (input.revision !== this.state.revision)
-            throw new ConflictError('Settings changed in another tab. Reload before saving.');
-        const settings = validateSettings(input.settings);
-        const webhook = input.webhook === undefined ? this.state.webhook : input.webhook === null ? '' : validateWebhook(input.webhook);
-        this.change(s => {
-            s.revision++;
-            s.settings = settings;
-            // A replaced destination must never receive work queued for the old channel.
-            const changed = webhook !== s.webhook;
-            s.webhook = webhook;
-            s.queue = s.queue.filter(item => {
-                const keep = !changed && !!webhook && settings.slack.enabled && settings.slack.events[item.notice.kind] && this.slackAgentAllowed(item.notice, settings.slack);
-                if (!keep) {
-                    const h = s.history.find(h => h.seq === item.seq);
-                    if (h) {
-                        h.slack = 'cancelled';
-                        delete h.nextAttempt;
+        const input = structuredClone(value);
+        return this.enqueue(async () => {
+            const v = record(input);
+            if (v.revision !== this.state.revision)
+                throw new ConflictError('Settings changed in another tab. Reload before saving.');
+            const settings = validateSettings(v.settings);
+            const webhook = v.webhook === undefined ? this.state.webhook : v.webhook === null ? '' : validateWebhook(v.webhook);
+            await this.commit(s => {
+                s.revision++;
+                s.settings = settings;
+                // A replaced destination must never receive work queued for the old channel.
+                const changed = webhook !== s.webhook;
+                s.webhook = webhook;
+                s.queue = s.queue.filter(item => {
+                    const keep = !changed && !!webhook && settings.slack.enabled && settings.slack.events[item.notice.kind] && this.slackAgentAllowed(item.notice, settings.slack);
+                    if (!keep) {
+                        const h = s.history.find(h => h.seq === item.seq);
+                        if (h) {
+                            h.slack = 'cancelled';
+                            delete h.nextAttempt;
+                        }
                     }
-                }
-                else if (!settings.slack.includeSummary)
-                    delete item.notice.summary;
-                return keep;
+                    else if (!settings.slack.includeSummary)
+                        delete item.notice.summary;
+                    return keep;
+                });
+                if (!settings.slack.includeSummary)
+                    for (const h of s.history)
+                        delete h.notice.summary;
             });
-            if (!settings.slack.includeSummary)
-                for (const h of s.history)
-                    delete h.notice.summary;
+            return this.view();
         });
-        return this.view();
     }
-    add(notice) {
-        if (this.state.seen.includes(notice.id))
-            return;
-        const { browser, slack } = this.state.settings;
-        const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
-        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && this.slackAgentAllowed({ ...notice, isSubagent: notice.isSubagent ?? false });
-        if (!toBrowser && !toSlack)
-            return;
-        let entry;
-        this.change(s => {
-            const safe = structuredClone(notice);
-            // Persist the default explicitly so new main-task notices survive restart.
-            safe.isSubagent ??= false;
-            if (!s.settings.slack.includeSummary)
-                delete safe.summary;
-            entry = { seq: ++s.sequence, notice: safe, browser: toBrowser ? 'waiting' : 'disabled', slack: toSlack ? 'waiting' : 'disabled', attempts: 0 };
-            s.seen = [...s.seen, notice.id].slice(-2000);
-            s.history = [...s.history, entry].slice(-200);
-            if (toSlack) {
-                if (s.queue.length >= 100) {
-                    entry.slack = 'failed';
-                    entry.error = 'Slack queue is full (100 pending deliveries).';
+    add(value) {
+        const notice = structuredClone(value);
+        return this.enqueue(async () => {
+            if (this.state.seen.includes(notice.id))
+                return;
+            const { browser, slack } = this.state.settings;
+            const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
+            const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && this.slackAgentAllowed({ ...notice, isSubagent: notice.isSubagent ?? false });
+            if (!toBrowser && !toSlack)
+                return;
+            let entry;
+            await this.commit(s => {
+                // Persist the default explicitly so new main-task notices survive restart.
+                notice.isSubagent ??= false;
+                if (!s.settings.slack.includeSummary)
+                    delete notice.summary;
+                entry = { seq: ++s.sequence, notice, browser: toBrowser ? 'waiting' : 'disabled', slack: toSlack ? 'waiting' : 'disabled', attempts: 0 };
+                s.seen = [...s.seen, notice.id].slice(-2000);
+                s.history = [...s.history, entry].slice(-200);
+                if (toSlack) {
+                    if (s.queue.length >= 100) {
+                        entry.slack = 'failed';
+                        entry.error = 'Slack queue is full (100 pending deliveries).';
+                    }
+                    else
+                        s.queue.push({ seq: entry.seq, notice, attempts: 0, nextAttempt: Date.now() });
                 }
-                else
-                    s.queue.push({ seq: entry.seq, notice: safe, attempts: 0, nextAttempt: Date.now() });
-            }
+            });
+            return entry;
         });
-        return entry;
     }
     ack(seq, delivered) {
-        const entry = this.state.history.find(h => h.seq === seq && h.browser !== 'disabled');
-        if (!Number.isSafeInteger(seq) || !entry)
-            throw new ValidationError('Unknown browser delivery.');
-        const status = delivered ? 'delivered' : 'failed';
-        // Multiple profiles/devices can acknowledge the same sequence. Already
-        // committed results need neither cloning nor another synchronous fsync.
-        if (entry.browser === 'delivered' || entry.browser === status)
-            return;
-        this.change(s => { s.history.find(h => h.seq === seq).browser = status; });
+        return this.enqueue(async () => {
+            const entry = this.state.history.find(h => h.seq === seq && h.browser !== 'disabled');
+            if (!Number.isSafeInteger(seq) || !entry)
+                throw new ValidationError('Unknown browser delivery.');
+            const status = delivered ? 'delivered' : 'failed';
+            if (entry.browser === 'delivered' || entry.browser === status)
+                return;
+            await this.commit(s => { s.history.find(h => h.seq === seq).browser = status; });
+        });
     }
     history() {
         // Response summaries never enter browser API responses, even if opted in for Slack.

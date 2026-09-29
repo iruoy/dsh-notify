@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { writeJson } from './persistence.js';
 
 export const PRICING_URL = 'https://models.dev/api.json';
 export const PRICING_TTL = 24 * 60 * 60 * 1000;
@@ -69,14 +69,18 @@ export class PricingCache {
   private timer?: ReturnType<typeof setInterval>;
   private controller = new AbortController();
   private path: string;
-  constructor(private directory: string, private fetcher: typeof fetch = fetch, private now = Date.now) {
+  private constructor(private directory: string, private fetcher: typeof fetch, private now: () => number) {
     this.path = join(directory, 'pricing.json');
+  }
+  static async open(directory: string, fetcher: typeof fetch = fetch, now = Date.now): Promise<PricingCache> {
+    const cache = new PricingCache(directory, fetcher, now);
     try {
-      const raw: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
-      if (object(raw) && raw.version === 1 && amount(raw.fetchedAt) && raw.fetchedAt <= this.now()) {
-        this.snapshot = { version: 1, fetchedAt: raw.fetchedAt, prices: parsePrices(raw.prices, true) };
+      const raw: unknown = JSON.parse(await readFile(cache.path, 'utf8'));
+      if (object(raw) && raw.version === 1 && amount(raw.fetchedAt) && raw.fetchedAt <= now()) {
+        cache.snapshot = { version: 1, fetchedAt: raw.fetchedAt, prices: parsePrices(raw.prices, true) };
       }
     } catch { /* A missing or corrupt cache is rebuilt in the background. */ }
+    return cache;
   }
   start(): void {
     void this.refresh();
@@ -84,6 +88,7 @@ export class PricingCache {
     this.timer.unref();
   }
   dispose(): void { this.stopped = true; clearInterval(this.timer); this.controller.abort(); }
+  async close(): Promise<void> { this.dispose(); await this.pending; }
   refresh(): Promise<void> {
     if (this.pending) return this.pending;
     const now = this.now();
@@ -93,7 +98,6 @@ export class PricingCache {
     return this.pending;
   }
   private async download(): Promise<void> {
-    let temp: string | undefined;
     try {
       const response = await this.fetcher(PRICING_URL, { redirect: 'error', signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(15_000)]) });
       if (!response.ok || !response.body) { await response.body?.cancel(); return; }
@@ -107,13 +111,10 @@ export class PricingCache {
       const prices = parsePrices(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       if (this.stopped) return;
       const snapshot: Snapshot = { version: 1, fetchedAt: this.now(), prices };
-      mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-      temp = `${this.path}.${randomUUID()}.tmp`;
-      writeFileSync(temp, JSON.stringify(snapshot), { mode: 0o600, flag: 'wx' });
-      renameSync(temp, this.path);
-      this.snapshot = snapshot;
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
+      await writeJson(this.path, snapshot);
+      if (!this.stopped) this.snapshot = snapshot;
     } catch { /* Keep the last successful snapshot and retry in an hour. */ }
-    finally { if (temp) { try { rmSync(temp, { force: true }); } catch { /* Best effort cleanup. */ } } }
   }
   estimate: PriceCall = (provider, model, usage) => {
     const snapshot = this.snapshot;

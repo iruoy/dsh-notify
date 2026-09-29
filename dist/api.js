@@ -65,7 +65,7 @@ export function registerApi(web, connection, store, stream, queue) {
                 }
             } }));
     };
-    route('/settings', ['GET', 'PUT'], async (req, res) => json(res, 200, req.method === 'GET' ? store.view() : store.update(await body(req))));
+    route('/settings', ['GET', 'PUT'], async (req, res) => json(res, 200, req.method === 'GET' ? store.view() : await store.update(await body(req))));
     route('/history', ['GET'], (_req, res) => json(res, 200, store.history()));
     route('/events', ['GET'], (req, res) => {
         const raw = req.headers['last-event-id'] ?? new URL(req.url, 'http://localhost').searchParams.get('after');
@@ -78,7 +78,7 @@ export function registerApi(web, connection, store, stream, queue) {
         const input = record(await body(req));
         if (typeof input.delivered !== 'boolean' || typeof input.seq !== 'number')
             throw new ValidationError('Invalid delivery receipt.');
-        store.ack(input.seq, input.delivered);
+        await store.ack(input.seq, input.delivered);
         json(res, 200, { ok: true });
     });
     route('/test-slack', ['POST'], async (_req, res) => {

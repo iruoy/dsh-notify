@@ -4,15 +4,22 @@ export declare class ConflictError extends Error {
 export declare class Store {
     readonly directory: string;
     state: State;
-    private path;
-    constructor(directory: string, baseUrl?: string);
+    private tail;
+    private failed;
+    private closed;
+    private constructor();
+    static open(directory: string, baseUrl?: string): Promise<Store>;
     private slackAgentAllowed;
-    /** Commit a complete snapshot, fsync before rename; the secret is never a separate partial write. */
     private persist;
-    change(fn: (state: State) => void): void;
+    private enqueue;
+    assertHealthy(): void;
+    idle(): Promise<void>;
+    close(): Promise<void>;
+    private commit;
+    change(fn: (state: State) => void): Promise<void>;
     view(): SettingsView;
-    update(value: unknown): SettingsView;
-    add(notice: Notice): HistoryEntry | undefined;
-    ack(seq: number, delivered: boolean): void;
+    update(value: unknown): Promise<SettingsView>;
+    add(value: Notice): Promise<HistoryEntry | undefined>;
+    ack(seq: number, delivered: boolean): Promise<void>;
     history(): HistoryEntry[];
 }

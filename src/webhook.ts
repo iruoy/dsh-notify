@@ -86,14 +86,16 @@ export class SlackQueue {
   dispose(): void { this.stopped = true; clearInterval(this.timer); this.controller.abort(); }
   async tick(now = Date.now()): Promise<void> {
     if (this.stopped || this.busy) return;
-    const job = this.store.state.queue.find(j => j.nextAttempt <= now);
-    if (!job || !this.store.state.webhook || !this.store.state.settings.slack.enabled) return;
     this.busy = true;
-    const webhook = this.store.state.webhook;
     try {
+      await this.store.idle();
+      if (this.stopped) return;
+      const job = this.store.state.queue.find(j => j.nextAttempt <= now);
+      if (!job || !this.store.state.webhook || !this.store.state.settings.slack.enabled) return;
+      const webhook = this.store.state.webhook;
       const result = await sendSlack(webhook, slackPayload(job.notice, this.store.state.settings.baseUrl), job.attempts, this.controller.signal, this.fetcher);
       if (this.stopped) return; // Leave work pending when shutdown aborts an in-flight request.
-      this.store.change(s => {
+      await this.store.change(s => {
         const pending = s.queue.find(j => j.seq === job.seq);
         if (!pending || s.webhook !== webhook) return;
         pending.attempts++;
@@ -110,6 +112,7 @@ export class SlackQueue {
     } finally { this.busy = false; }
   }
   async test(): Promise<SendResult> {
+    await this.store.idle();
     if (!this.store.state.webhook) return { ok: false, retry: false, error: 'Save a Slack webhook first.' };
     return sendSlack(this.store.state.webhook, slackPayload({ id: 'test', kind: 'completed', sessionId: '', title: 'DSH Notify test', time: Date.now() }, ''), 0, this.controller.signal, this.fetcher);
   }

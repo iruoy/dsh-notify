@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { writeJson } from './persistence.js';
 export const PRICING_URL = 'https://models.dev/api.json';
 export const PRICING_TTL = 24 * 60 * 60 * 1000;
 export function publicPricingProvider(provider) {
@@ -77,18 +77,22 @@ export class PricingCache {
     timer;
     controller = new AbortController();
     path;
-    constructor(directory, fetcher = fetch, now = Date.now) {
+    constructor(directory, fetcher, now) {
         this.directory = directory;
         this.fetcher = fetcher;
         this.now = now;
         this.path = join(directory, 'pricing.json');
+    }
+    static async open(directory, fetcher = fetch, now = Date.now) {
+        const cache = new PricingCache(directory, fetcher, now);
         try {
-            const raw = JSON.parse(readFileSync(this.path, 'utf8'));
-            if (object(raw) && raw.version === 1 && amount(raw.fetchedAt) && raw.fetchedAt <= this.now()) {
-                this.snapshot = { version: 1, fetchedAt: raw.fetchedAt, prices: parsePrices(raw.prices, true) };
+            const raw = JSON.parse(await readFile(cache.path, 'utf8'));
+            if (object(raw) && raw.version === 1 && amount(raw.fetchedAt) && raw.fetchedAt <= now()) {
+                cache.snapshot = { version: 1, fetchedAt: raw.fetchedAt, prices: parsePrices(raw.prices, true) };
             }
         }
         catch { /* A missing or corrupt cache is rebuilt in the background. */ }
+        return cache;
     }
     start() {
         void this.refresh();
@@ -96,6 +100,7 @@ export class PricingCache {
         this.timer.unref();
     }
     dispose() { this.stopped = true; clearInterval(this.timer); this.controller.abort(); }
+    async close() { this.dispose(); await this.pending; }
     refresh() {
         if (this.pending)
             return this.pending;
@@ -107,7 +112,6 @@ export class PricingCache {
         return this.pending;
     }
     async download() {
-        let temp;
         try {
             const response = await this.fetcher(PRICING_URL, { redirect: 'error', signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(15_000)]) });
             if (!response.ok || !response.body) {
@@ -126,21 +130,12 @@ export class PricingCache {
             if (this.stopped)
                 return;
             const snapshot = { version: 1, fetchedAt: this.now(), prices };
-            mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-            temp = `${this.path}.${randomUUID()}.tmp`;
-            writeFileSync(temp, JSON.stringify(snapshot), { mode: 0o600, flag: 'wx' });
-            renameSync(temp, this.path);
-            this.snapshot = snapshot;
+            await mkdir(this.directory, { recursive: true, mode: 0o700 });
+            await writeJson(this.path, snapshot);
+            if (!this.stopped)
+                this.snapshot = snapshot;
         }
         catch { /* Keep the last successful snapshot and retry in an hour. */ }
-        finally {
-            if (temp) {
-                try {
-                    rmSync(temp, { force: true });
-                }
-                catch { /* Best effort cleanup. */ }
-            }
-        }
     }
     estimate = (provider, model, usage) => {
         const snapshot = this.snapshot;

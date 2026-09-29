@@ -6,9 +6,9 @@ import { registerApi, type WebServer } from '../../src/api.js';
 import { BrowserStream } from '../../src/browser.js';
 import { SlackQueue } from '../../src/webhook.js';
 
-let server: Server, base: string, f: ReturnType<typeof fixture>, stream: BrowserStream, queue: SlackQueue, stopApi: () => void;
+let server: Server, base: string, f: Awaited<ReturnType<typeof fixture>>, stream: BrowserStream, queue: SlackQueue, stopApi: () => void;
 test.beforeAll(async () => {
-  f = fixture(false); stream = new BrowserStream(f.store); queue = new SlackQueue(f.store);
+  f = await fixture(false); stream = new BrowserStream(f.store); queue = new SlackQueue(f.store);
   const routes = new Map<string, Parameters<WebServer['register']>[0]['handler']>();
   stopApi = registerApi({ register: r => { routes.set(r.path, r.handler); return () => routes.delete(r.path); } }, { requestRejection: () => undefined }, f.store, stream, queue);
   const bundle = await build({ entryPoints: ['tests/browser/page.tsx'], bundle: true, write: false, outfile: 'app.js', loader: { '.module.css': 'local-css', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' }, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
@@ -41,8 +41,8 @@ test('display failure pauses later delivery and focus replays the failed notice'
   await page.goto(base);
   await expect(page.getByText(/Appears on this computer/)).toContainText('Connected');
   const before = await page.evaluate(() => localStorage.getItem('dsh-notify:cursor:v1'));
-  const failed = f.store.add(notice('display-failure'))!; stream.publish(failed);
-  const later = f.store.add(notice('after-display-failure'))!; stream.publish(later);
+  const failed = (await f.store.add(notice('display-failure')))!; stream.publish(failed);
+  const later = (await f.store.add(notice('after-display-failure')))!; stream.publish(later);
   await expect(page.getByText(/Appears on this computer/)).toContainText('focus this tab to retry');
   await expect.poll(() => f.store.state.history.find(h => h.seq === failed.seq)?.browser).toBe('failed');
   expect(await page.evaluate(() => localStorage.getItem('dsh-notify:cursor:v1'))).toBe(before);
@@ -92,7 +92,7 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   const second = await context.newPage(); await second.goto(base);
   await expect(second.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
   await expect(second.getByRole('button', { name: 'Enable notifications', exact: true })).toBeHidden();
-  const firstEntry = f.store.add(notice('browser-1'))!; stream.publish(firstEntry);
+  const firstEntry = (await f.store.add(notice('browser-1')))!; stream.publish(firstEntry);
   await expect.poll(() => page.evaluate(() => (window as any).notices.length)).toBe(2);
   expect(await second.evaluate(() => (window as any).notices.length)).toBe(0);
   await page.evaluate(() => (window as any).notices[1].onclick());
@@ -113,12 +113,12 @@ test('settings, permission gesture, one notification across tabs, click, replay 
   await page.screenshot({ path: 'test-results/settings-dark.png', fullPage: true });
   await page.close();
   await expect(second.getByText(/Appears on this computer/)).toContainText('Connected');
-  const next = f.store.add(notice('browser-2'))!; stream.publish(next);
+  const next = (await f.store.add(notice('browser-2')))!; stream.publish(next);
   await expect.poll(() => second.evaluate(() => (window as any).notices.length)).toBe(1);
   await expect.poll(() => f.store.history()[0].browser).toBe('delivered');
   await second.close();
   // No browser is connected; next tab replays only the missed event from persisted cursor.
-  stream.publish(f.store.add(notice('offline'))!);
+  stream.publish((await f.store.add(notice('offline')))!);
   const third = await context.newPage(); await third.goto(base + '/?dsh-notify-session=linked-session');
   await expect.poll(() => third.evaluate(() => (window as any).notices.length)).toBe(1);
   expect(await third.evaluate(() => (window as any).openedSession)).toBe('linked-session');

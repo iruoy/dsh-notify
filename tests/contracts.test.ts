@@ -16,6 +16,13 @@ it('keeps the compatibility warning and README aligned with pinned DSH dependenc
   expect(read('README.md')).toContain(`**${version} API**`);
   expect(read('src/index.ts')).toContain(`tested with ${version}`);
 });
+it('uses only asynchronous filesystem operations for state and pricing persistence', () => {
+  for (const path of ['src/store.ts', 'src/persistence.ts', 'src/pricing.ts']) {
+    const source = read(path);
+    expect(source).not.toMatch(/from ['"]node:fs['"]/);
+    expect(source).not.toMatch(/\b\w+Sync\s*\(/);
+  }
+});
 it('declares the documented Node floor and tests it with the tracked package manager', () => {
   const pkg = JSON.parse(read('package.json'));
   expect(pkg.engines.node).toBe('^22.19.0 || >=24.0.0');

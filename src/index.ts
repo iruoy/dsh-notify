@@ -26,17 +26,18 @@ declare module '@deepseek-ai/cordis' {
 export const name = 'dsh-notify';
 export const inject = ['sessions', 'agents'];
 export { Config };
-export function apply(ctx: Context, config: PluginConfig = {}): void {
+export async function apply(ctx: Context, config: PluginConfig = {}): Promise<void> {
   const directory = config.dataDir || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'dsh-notify');
-  const store = new Store(directory, config.baseUrl);
-  const pricing = new PricingCache(directory);
+  const store = await Store.open(directory, config.baseUrl);
+  const pricing = await PricingCache.open(directory);
   const queue = new SlackQueue(store), stream = new BrowserStream(store), gate = new CompletionGate(), normalizer = new EventNormalizer(pricing.estimate);
   const rootSessions = new Set<string>();
-  const emit = (notice: Notice): void => {
-    try { const entry = store.add(notice); if (entry) stream.publish(entry); }
+  let stopped = false;
+  const emit = async (notice: Notice): Promise<void> => {
+    try { const entry = await store.add(notice); if (entry && !stopped) stream.publish(entry); }
     catch { console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.'); }
   };
-  ctx.on('session/event', (session, event) => {
+  ctx.on('session/event', async (session, event) => {
     const agent = ctx.agents.get(session.id);
     if (!agent) return;
     if (ctx.agents.roots().includes(agent)) rootSessions.add(String(agent.id));
@@ -44,28 +45,32 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary, { workspace: session.header?.cwd, config: session.requestHeader?.()?.config });
     if (!notice) return;
     notice.isSubagent = !rootSessions.has(String(agent.id));
-    if (notice.kind === 'approval' || agent.status === 'idle') emit(notice);
+    if (notice.kind === 'approval' || agent.status === 'idle') await emit(notice);
     else gate.enqueue(notice);
   });
   ctx.on('user-questions/request', async (request, next) => {
     const sessionId = String(request.agent?.id ?? 'agentless');
-    emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
+    await emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
       title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
     return next();
   });
-  ctx.on('agent/status', ({ agent, status }) => {
+  ctx.on('agent/status', async ({ agent, status }) => {
     if (status !== 'idle') return;
-    const pending = gate.flush(String(agent.id));
-    for (const notice of pending) emit(notice);
+    await Promise.all(gate.flush(String(agent.id)).map(emit));
   });
-  ctx.on('agent/disposed', ({ agent }) => {
+  ctx.on('agent/disposed', async ({ agent }) => {
     normalizer.forget(String(agent.id));
     // A terminal event may be followed by disposal without another idle transition.
-    const pending = gate.flush(String(agent.id));
-    for (const notice of pending) emit(notice);
+    await Promise.all(gate.flush(String(agent.id)).map(emit));
     rootSessions.delete(String(agent.id));
   });
-  ctx.effect(() => { queue.start(); pricing.start(); return () => { queue.dispose(); stream.dispose(); pricing.dispose(); }; }, 'dsh-notify: deliveries');
+  ctx.effect(() => {
+    queue.start(); pricing.start();
+    return async () => {
+      stopped = true; queue.dispose(); stream.dispose(); pricing.dispose();
+      await Promise.all([store.close(), pricing.close()]);
+    };
+  }, 'dsh-notify: deliveries');
   ctx.inject(['webServer', 'connection'], web => {
     if (typeof web.connection.requestRejection !== 'function') {
       console.warn('[dsh-notify] Browser delivery requires DSH Connection.requestRejection (tested with 0.2.0-rc.2).'); return;
