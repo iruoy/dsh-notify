@@ -58,7 +58,7 @@ export class BrowserRuntime {
     if (!navigator.locks) { this.setStatus('This browser needs Web Locks support for notification delivery.'); return; }
     for (const seq of this.receipts) this.acknowledge(seq);
     if (this.waiting) {
-      if (this.paused) { this.paused = false; this.connect(); }
+      if (this.paused && this.release) { this.paused = false; this.connect(); }
       return;
     }
     this.waiting = true;

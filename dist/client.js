@@ -122,7 +122,7 @@ var BrowserRuntime = class {
     }
     for (const seq of this.receipts) this.acknowledge(seq);
     if (this.waiting) {
-      if (this.paused) {
+      if (this.paused && this.release) {
         this.paused = false;
         this.connect();
       }

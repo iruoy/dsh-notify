@@ -156,3 +156,32 @@ it('reacquires leadership after permission loss and resumes the failed sequence'
   recovered.emit('notice', { seq: 1, notice: notice() });
   expect(s.show).toHaveBeenCalledTimes(1);
 });
+it('waits for lock ownership before reconnecting a paused tab after permission is restored', async () => {
+  const s = setup();
+  s.NotificationMock.permission = 'denied';
+  s.source.emit('notice', { seq: 1, notice: notice() });
+  s.runtime.refresh();
+  // Allow the Web Locks callback and its finally handler to release leadership.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(s.source.closed).toBe(true);
+  // Another tab holds the lock, so this tab's next request remains queued.
+  let acquire!: () => void;
+  s.leadership.mockImplementationOnce((_name, _options, fn) => new Promise(resolve => {
+    acquire = () => resolve(fn());
+  }));
+  s.NotificationMock.permission = 'granted';
+  s.runtime.refresh();
+  s.runtime.refresh();
+  s.runtime.refresh();
+  expect(s.leadership).toHaveBeenCalledTimes(2);
+  expect(Source.instances).toHaveLength(1);
+  expect(s.runtime.snapshot()).toBe('Waiting for the notification tab');
+  acquire();
+  expect(Source.instances).toHaveLength(2);
+  const recovered = Source.instances[1];
+  expect(recovered.url).toBe('/api/dsh-notify/events?after=0');
+  s.source.emit('notice', { seq: 1, notice: notice('stale') });
+  recovered.emit('notice', { seq: 1, notice: notice() });
+  expect(s.show).toHaveBeenCalledTimes(1);
+  expect(Source.instances.filter(source => !source.closed)).toEqual([recovered]);
+});
