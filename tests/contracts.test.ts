@@ -29,7 +29,7 @@ it('declares the documented Node floor and tests it with the tracked package man
   expect(read('README.md')).toContain('**22.19+ or 24+**');
   expect(pkg.packageManager).toBe('pnpm@11.26.0');
   const ci = read('.github/workflows/ci.yml');
-  expect(ci).toContain("node: ['22.19.0', '24']");
+  expect(ci).toContain("node: ['22', '24', '26']");
   expect(ci).toContain('pnpm install --frozen-lockfile');
   expect(ci).toContain('git diff --exit-code -- dist');
 });

@@ -125,7 +125,7 @@ Settings controls use `Button`, `Input`, and `Switch` from DSH's shared UI primi
 
 The primitives package and its browser build dependencies are development-only: Playwright bundles the real components and their CSS for testing. The shipped plugin keeps the primitives import external and uses DSH's installed components and theme.
 
-Install development dependencies with `pnpm install --frozen-lockfile` (pnpm 11.26.0). Run `pnpm run check` and `pnpm run test:browser` before shipping changes. CI runs both checks on Node 22.19.0 and 24, and verifies that rebuilding leaves `dist` unchanged.
+Install development dependencies with `pnpm install --frozen-lockfile` (pnpm 11.26.0). Run `pnpm run check` and `pnpm run test:browser` before shipping changes. CI runs both checks on Node 22, 24, and 26, and verifies that rebuilding leaves `dist` unchanged.
 
 ## License
 
