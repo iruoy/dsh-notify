@@ -24,6 +24,61 @@ test.beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 });
 test.afterAll(async () => { stopApi(); queue.dispose(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); f.cleanup(); });
+test('history refresh failures retain stale rows and recover automatically', async ({ page }) => {
+  await f.store.add({ ...notice('history-freshness'), title: 'History freshness test' });
+  await page.clock.install();
+  let fail = false;
+  await page.route('**/api/dsh-notify/history', route => fail
+    ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+    : route.continue());
+  await page.goto(base);
+  const row = page.getByRole('row').filter({ hasText: 'History freshness test' });
+  await expect(row).toBeVisible();
+  fail = true;
+  await page.clock.runFor(5000);
+  await expect(page.getByRole('alert')).toContainText('Delivery history is stale.');
+  await expect(row).toBeVisible();
+  fail = false;
+  await page.clock.runFor(5000);
+  await expect(page.getByRole('alert')).toBeHidden();
+  await expect(row).toBeVisible();
+});
+
+test('initial history failure is unavailable rather than an empty history', async ({ page }) => {
+  await page.route('**/api/dsh-notify/history', route => route.abort());
+  await page.goto(base);
+  await expect(page.getByRole('alert')).toContainText('Delivery history is unavailable.');
+  await expect(page.getByText('No notifications yet.', { exact: false })).toBeHidden();
+});
+
+test('history polling stops on unmount and ignores delayed responses', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.clock.install();
+  let polls = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/dsh-notify/history', async route => {
+    polls++;
+    if (polls === 2) { await pending; await route.fulfill({ status: 503, json: { error: 'Unavailable' } }); }
+    else await route.continue();
+  });
+  await page.goto(base);
+  await expect(page.getByRole('heading', { name: 'Recent deliveries Last 20' })).toBeVisible();
+  await expect.poll(() => polls).toBe(1);
+  await page.clock.runFor(5000);
+  await expect.poll(() => polls).toBe(2);
+  await page.evaluate(() => (window as any).unmountSettings());
+  await expect(page.getByRole('heading', { name: 'Notify', exact: true })).toBeHidden();
+  release();
+  await page.clock.runFor(15000);
+  expect(polls).toBe(2);
+  await page.evaluate(() => { window.dispatchEvent(new Event('focus')); (window as any).mountSettings(); });
+  await expect(page.getByRole('heading', { name: 'Notify', exact: true })).toBeVisible();
+  await expect.poll(() => polls).toBe(3);
+  await expect(page.getByRole('alert')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test('display failure pauses later delivery and focus replays the failed notice', async ({ context, page }) => {
   await context.addInitScript(() => {
     (window as any).notices = [];

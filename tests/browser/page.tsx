@@ -9,7 +9,11 @@ const ctx = {
   slots: {
     inject: (_name: string, fn: () => () => void) => fn(),
     register: (options: { inject: () => object }, Component: React.ComponentType<any>) => {
-      const root = createRoot(document.getElementById('root')!); root.render(<Component {...options.inject()} />);
+      const root = createRoot(document.getElementById('root')!);
+      const mount = () => root.render(<Component {...options.inject()} />);
+      (window as any).mountSettings = mount;
+      (window as any).unmountSettings = () => root.render(null);
+      mount();
       return () => root.unmount();
     },
   },

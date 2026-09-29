@@ -267,6 +267,7 @@ function SettingsSection({ runtime }) {
   const [webhook, setWebhook] = (0, import_react.useState)("");
   const [removeWebhook, setRemoveWebhook] = (0, import_react.useState)(false);
   const [history2, setHistory] = (0, import_react.useState)([]);
+  const [historyError, setHistoryError] = (0, import_react.useState)(false);
   const [message, setMessage] = (0, import_react.useState)("");
   const [busy, setBusy] = (0, import_react.useState)(false);
   const [permission, setPermission] = (0, import_react.useState)(permissionStatus);
@@ -285,8 +286,12 @@ function SettingsSection({ runtime }) {
       if (alive) setMessage(e.message);
     });
     const poll = () => request("/history").then((rows) => {
-      if (alive) setHistory(rows);
+      if (alive) {
+        setHistory(rows);
+        setHistoryError(false);
+      }
     }).catch(() => {
+      if (alive) setHistoryError(true);
     });
     void poll();
     const timer = setInterval(poll, 5e3);
@@ -416,7 +421,11 @@ function SettingsSection({ runtime }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dn-muted", children: "Last 20" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-muted", children: "Browser \u201Cdelivered\u201D means a browser accepted the notification. Your operating system may still silence it." }),
-      !history2.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-empty", children: "No notifications yet. Your next task event will appear here." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dn-table", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { children: [
+      historyError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { role: "alert", className: "dn-error", children: [
+        history2.length ? "Delivery history is stale. Refresh failed; showing the last successful update." : "Delivery history is unavailable. Refresh failed.",
+        " Retrying automatically."
+      ] }),
+      !history2.length ? !historyError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dn-empty", children: "No notifications yet. Your next task event will appear here." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dn-table", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Event" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Time" }),

@@ -16,6 +16,7 @@ export function SettingsSection({ runtime }: Props) {
   const [webhook, setWebhook] = useState('');
   const [removeWebhook, setRemoveWebhook] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [permission, setPermission] = useState(permissionStatus);
@@ -29,7 +30,9 @@ export function SettingsSection({ runtime }: Props) {
   useEffect(() => {
     let alive = true;
     void reload().catch(e => { if (alive) setMessage(e.message); });
-    const poll = () => request<HistoryEntry[]>('/history').then(rows => { if (alive) setHistory(rows); }).catch(() => {});
+    const poll = () => request<HistoryEntry[]>('/history').then(rows => {
+      if (alive) { setHistory(rows); setHistoryError(false); }
+    }).catch(() => { if (alive) setHistoryError(true); });
     void poll(); const timer = setInterval(poll, 5000);
     const focus = () => setPermission(permissionStatus()); window.addEventListener('focus', focus);
     return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', focus); };
@@ -77,7 +80,8 @@ export function SettingsSection({ runtime }: Props) {
       <div className="dn-actions"><Button variant="primary" disabled={busy} onClick={() => void action(save)}>{busy ? 'Working…' : 'Save settings'}</Button><Button variant="outline" disabled={busy} onClick={() => void action(reload)}>Reload saved settings</Button></div>
       <h3>Recent deliveries <span className="dn-muted">Last 20</span></h3>
       <p className="dn-muted">Browser “delivered” means a browser accepted the notification. Your operating system may still silence it.</p>
-      {!history.length ? <p className="dn-empty">No notifications yet. Your next task event will appear here.</p> : <div className="dn-table"><table><thead><tr><th>Event</th><th>Time</th><th>Browser</th><th>Slack</th></tr></thead><tbody>{history.map(h => <tr key={h.seq}><td><strong>{LABELS[h.notice.kind]}</strong><div className="dn-muted">{h.notice.title}</div>{h.error && <div className="dn-error">{h.error}</div>}</td><td>{new Date(h.notice.time).toLocaleTimeString()}</td><td>{h.browser}</td><td>{h.slack}{h.attempts > 0 && <div className="dn-muted">{h.attempts} attempt{h.attempts === 1 ? '' : 's'}</div>}{h.nextAttempt && <div className="dn-muted">Retry {new Date(h.nextAttempt).toLocaleTimeString()}</div>}</td></tr>)}</tbody></table></div>}
+      {historyError && <p role="alert" className="dn-error">{history.length ? 'Delivery history is stale. Refresh failed; showing the last successful update.' : 'Delivery history is unavailable. Refresh failed.'} Retrying automatically.</p>}
+      {!history.length ? !historyError && <p className="dn-empty">No notifications yet. Your next task event will appear here.</p> : <div className="dn-table"><table><thead><tr><th>Event</th><th>Time</th><th>Browser</th><th>Slack</th></tr></thead><tbody>{history.map(h => <tr key={h.seq}><td><strong>{LABELS[h.notice.kind]}</strong><div className="dn-muted">{h.notice.title}</div>{h.error && <div className="dn-error">{h.error}</div>}</td><td>{new Date(h.notice.time).toLocaleTimeString()}</td><td>{h.browser}</td><td>{h.slack}{h.attempts > 0 && <div className="dn-muted">{h.attempts} attempt{h.attempts === 1 ? '' : 's'}</div>}{h.nextAttempt && <div className="dn-muted">Retry {new Date(h.nextAttempt).toLocaleTimeString()}</div>}</td></tr>)}</tbody></table></div>}
     </>}
   </section>;
 }
