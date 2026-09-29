@@ -284,6 +284,10 @@ function EventChoices({ value, onChange, destination }) {
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.Switch, { checked: value[kind], label: `${destination}: ${LABELS[kind]}`, onChange: (checked) => onChange({ ...value, [kind]: checked }) })
   ] }, kind)) });
 }
+function defaultBaseUrl() {
+  const { protocol, hostname, origin } = window.location;
+  return protocol === "https:" || protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(hostname) ? origin : "";
+}
 function SettingsSection({ runtime }) {
   const [view, setView] = (0, import_react.useState)();
   const [settings, setSettings] = (0, import_react.useState)();
@@ -299,7 +303,7 @@ function SettingsSection({ runtime }) {
     const next = await request("/settings");
     setView(next);
     const { revision: _revision, webhookConfigured: _configured, ...current } = next;
-    setSettings({ ...current, baseUrl: current.baseUrl || window.location.origin });
+    setSettings({ ...current, baseUrl: current.baseUrl || defaultBaseUrl() });
     setWebhook("");
     setRemoveWebhook(false);
   };

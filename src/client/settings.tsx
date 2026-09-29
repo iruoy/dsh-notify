@@ -10,6 +10,11 @@ type Props = PropsRuntime<'settings.section'> & InjectFace<Injected>;
 function EventChoices({ value, onChange, destination }: { value: EventSwitches; onChange: (v: EventSwitches) => void; destination: string }) {
   return <div className="dn-events">{KINDS.map(kind => <label key={kind} className="dn-choice"><span>{LABELS[kind]}</span><Switch checked={value[kind]} label={`${destination}: ${LABELS[kind]}`} onChange={checked => onChange({ ...value, [kind]: checked })} /></label>)}</div>;
 }
+/** The browser origin, only when the server would accept it as a base URL (HTTPS, or HTTP on localhost). */
+function defaultBaseUrl(): string {
+  const { protocol, hostname, origin } = window.location;
+  return protocol === 'https:' || (protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(hostname)) ? origin : '';
+}
 export function SettingsSection({ runtime }: Props) {
   const [view, setView] = useState<SettingsView>();
   const [settings, setSettings] = useState<Settings>();
@@ -24,7 +29,7 @@ export function SettingsSection({ runtime }: Props) {
   const reload = async () => {
     const next = await request<SettingsView>('/settings'); setView(next);
     const { revision: _revision, webhookConfigured: _configured, ...current } = next;
-    setSettings({ ...current, baseUrl: current.baseUrl || window.location.origin });
+    setSettings({ ...current, baseUrl: current.baseUrl || defaultBaseUrl() });
     setWebhook(''); setRemoveWebhook(false);
   };
   useEffect(() => {
