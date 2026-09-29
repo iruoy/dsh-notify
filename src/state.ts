@@ -8,8 +8,11 @@ function boolean(value: unknown): boolean { return typeof value === 'boolean' ? 
 function number(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : invalid();
 }
-function integer(value: unknown): number { const n = number(value); return Number.isSafeInteger(n) ? n : invalid(); }
-function timestamp(value: unknown): number { const n = number(value); return n <= 8.64e15 ? n : invalid(); }
+/** Shared with event normalization so accepted usage always satisfies these persisted-state rules. */
+export const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+export const isTimestamp = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 8.64e15;
+function integer(value: unknown): number { return isCount(value) ? value : invalid(); }
+function timestamp(value: unknown): number { return isTimestamp(value) ? value : invalid(); }
 function optional<T>(value: unknown, parse: (value: unknown) => T): T | undefined { return value === undefined ? undefined : parse(value); }
 function array<T>(value: unknown, parse: (value: unknown) => T, max = Infinity): T[] {
   return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid();

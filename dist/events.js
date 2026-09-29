@@ -1,6 +1,5 @@
 import { KINDS } from './types.js';
-const counter = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-const timestamp = (value) => Number.isFinite(value) && value >= 0 && value <= 8.64e15;
+import { isCount as counter, isTimestamp as timestamp } from './state.js';
 function text(content) {
     return content.flatMap(block => {
         if (!block || typeof block !== 'object')

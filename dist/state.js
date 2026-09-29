@@ -7,8 +7,11 @@ function boolean(value) { return typeof value === 'boolean' ? value : invalid();
 function number(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : invalid();
 }
-function integer(value) { const n = number(value); return Number.isSafeInteger(n) ? n : invalid(); }
-function timestamp(value) { const n = number(value); return n <= 8.64e15 ? n : invalid(); }
+/** Shared with event normalization so accepted usage always satisfies these persisted-state rules. */
+export const isCount = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+export const isTimestamp = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 8.64e15;
+function integer(value) { return isCount(value) ? value : invalid(); }
+function timestamp(value) { return isTimestamp(value) ? value : invalid(); }
 function optional(value, parse) { return value === undefined ? undefined : parse(value); }
 function array(value, parse, max = Infinity) {
     return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid();

@@ -3,9 +3,8 @@ import type {} from '@deepseek-ai/dsh-session-title';
 import type {} from '@deepseek-ai/dsh-user-approval';
 import { KINDS, type Kind, type Notice, type RunUsage } from './types.js';
 import type { CallUsage, PriceCall } from './pricing.js';
+import { isCount as counter, isTimestamp as timestamp } from './state.js';
 
-const counter = (value: unknown): boolean => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-const timestamp = (value: number): boolean => Number.isFinite(value) && value >= 0 && value <= 8.64e15;
 function text(content: readonly unknown[]): string {
   return content.flatMap(block => {
     if (!block || typeof block !== 'object') return [];
