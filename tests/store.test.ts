@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
@@ -77,6 +77,19 @@ describe('durable state and privacy', () => {
   it('keeps a successful browser receipt if another device reports failure', () => {
     const { store } = setup(); store.add(notice()); store.ack(1, true); store.ack(1, false);
     expect(store.history()[0].browser).toBe('delivered');
+  });
+  it('persists browser status transitions once, not every duplicate or downgraded receipt', () => {
+    const { store, dir } = setup(); store.add(notice());
+    const commits = vi.spyOn(store, 'change');
+    store.ack(1, false);
+    for (let client = 0; client < 50; client++) store.ack(1, false);
+    expect(commits).toHaveBeenCalledTimes(1);
+    store.ack(1, true);
+    for (let client = 0; client < 50; client++) { store.ack(1, true); store.ack(1, false); }
+    expect(commits).toHaveBeenCalledTimes(2);
+    expect(new Store(dir).history()[0].browser).toBe('delivered');
+    expect(() => store.ack(999, true)).toThrow('Unknown browser delivery');
+    expect(commits).toHaveBeenCalledTimes(2);
   });
   it('refuses corrupted state rather than overwriting queued work', () => {
     const { dir } = setup(); writeFileSync(join(dir, 'state.json'), '{broken');

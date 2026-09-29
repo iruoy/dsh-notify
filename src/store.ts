@@ -94,8 +94,13 @@ export class Store {
     return entry;
   }
   ack(seq: number, delivered: boolean): void {
-    if (!Number.isSafeInteger(seq) || !this.state.history.some(h => h.seq === seq && h.browser !== 'disabled')) throw new ValidationError('Unknown browser delivery.');
-    this.change(s => { const h = s.history.find(h => h.seq === seq)!; if (h.browser !== 'delivered') h.browser = delivered ? 'delivered' : 'failed'; });
+    const entry = this.state.history.find(h => h.seq === seq && h.browser !== 'disabled');
+    if (!Number.isSafeInteger(seq) || !entry) throw new ValidationError('Unknown browser delivery.');
+    const status = delivered ? 'delivered' : 'failed';
+    // Multiple profiles/devices can acknowledge the same sequence. Already
+    // committed results need neither cloning nor another synchronous fsync.
+    if (entry.browser === 'delivered' || entry.browser === status) return;
+    this.change(s => { s.history.find(h => h.seq === seq)!.browser = status; });
   }
   history(): HistoryEntry[] {
     // Response summaries never enter browser API responses, even if opted in for Slack.
