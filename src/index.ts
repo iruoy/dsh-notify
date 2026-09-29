@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-connection';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Config, type PluginConfig } from './config.js';
+import { Config, ValidationError, type PluginConfig } from './config.js';
 import { EventNormalizer, CompletionGate } from './events.js';
 import { Store } from './store.js';
 import { SlackQueue } from './webhook.js';
@@ -37,7 +37,12 @@ export async function apply(ctx: Context, config: PluginConfig = {}): Promise<vo
     if (!notices.length) return;
     // Publish only after the whole burst is durable, in sequence order.
     try { const entries = await store.addMany(notices); if (!stopped) for (const entry of entries) stream.publish(entry); }
-    catch { console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.'); }
+    catch (error) {
+      if (!(error instanceof ValidationError)) { console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.'); return; }
+      // One malformed notice must not discard the rest of its burst.
+      if (notices.length > 1) for (const notice of notices) await emit(notice);
+      else console.warn('[dsh-notify] An invalid notification was skipped.');
+    }
   };
   ctx.on('session/event', async (session, event) => {
     const agent = ctx.agents.get(session.id);

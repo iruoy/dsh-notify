@@ -168,3 +168,27 @@ it('keeps child failures and questions on Slack while suppressing child completi
     expect(history.find(item => item.notice.id === 'child:turn:1')?.browser).toBe('waiting');
   } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
 });
+
+it('skips only the invalid notice in a terminal burst', async () => {
+  const f = await fixture(false); const ctx = new Context();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const root = { id: 'root', status: 'running' };
+  ctx.reflect.provide('sessions', {} as any);
+  ctx.reflect.provide('agents', { get: () => root, roots: () => [root] } as any);
+  await ctx.plugin(plugin, { dataDir: f.dir });
+  try {
+    const sessionEvent = (type: string, data: object) => ctx.parallel('session/event', { id: 'root' } as any, { type, time: Date.now(), data } as any);
+    await sessionEvent('turn/start', { turn: 1 });
+    await sessionEvent('turn/end', { turn: 1, reason: { kind: 'completed' } });
+    await sessionEvent('turn/start', { turn: 2 });
+    // A host-supplied non-string provider cannot be persisted.
+    await sessionEvent('assistant/message', { turn: 2, step: 1, message: { source: { kind: 'model', provider: 7, model: 'm' }, content: [] }, usage: { inputTokens: 1, outputTokens: 1 } });
+    await sessionEvent('turn/end', { turn: 2, reason: { kind: 'error' } });
+    await sessionEvent('turn/start', { turn: 3 });
+    await sessionEvent('turn/end', { turn: 3, reason: { kind: 'completed' } });
+    root.status = 'idle'; await ctx.parallel('agent/status', { agent: root, status: 'idle' } as any);
+    expect((await Store.open(f.dir)).state.history.map(h => h.notice.id)).toEqual(['root:turn:1', 'root:turn:3']);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('[dsh-notify] An invalid notification was skipped.');
+  } finally { await ctx.fiber.dispose(); warn.mockRestore(); fetcher.mockRestore(); f.cleanup(); }
+});
