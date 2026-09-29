@@ -54,8 +54,10 @@ export function slackPayload(notice: Notice, baseUrl: string): object {
 // Bound server-supplied delays so the persisted retry time always stays a valid timestamp.
 const MAX_RETRY_DELAY = 24 * 60 * 60 * 1000;
 export function retryDelay(header: string | null, attempt: number, now = Date.now()): number {
-  const seconds = header === null ? NaN : Number(header);
-  const date = header === null ? NaN : Date.parse(header);
+  // A blank header is malformed, not a zero-second delay.
+  const value = header?.trim() || undefined;
+  const seconds = value === undefined ? NaN : Number(value);
+  const date = value === undefined ? NaN : Date.parse(value);
   const supplied = Number.isFinite(seconds) ? seconds * 1000 : date - now;
   return Number.isFinite(supplied) && supplied >= 0 ? Math.min(MAX_RETRY_DELAY, Math.max(1000, supplied)) : Math.min(300_000, 1000 * 2 ** attempt);
 }
