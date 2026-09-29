@@ -78,11 +78,12 @@ export class EventNormalizer {
             return { ...base, id: `${sessionId}:approval:${event.data.id}`, kind: 'approval', ...(active?.input ? { input: active.input } : {}) };
         if (event.type !== 'turn/end')
             return;
-        this.turns.delete(sessionId);
+        const matched = active?.turn === event.data.turn ? active : undefined;
+        if (matched)
+            this.turns.delete(sessionId);
         const kind = event.data.reason.kind;
         if (!KINDS.includes(kind))
             return;
-        const matched = active?.turn === event.data.turn ? active : undefined;
         return { ...base, id: `${sessionId}:turn:${event.data.turn}`, kind: kind,
             ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
             ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };

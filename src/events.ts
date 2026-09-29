@@ -71,10 +71,10 @@ export class EventNormalizer {
     const base = { sessionId, title: (title || `Session ${sessionId}`).slice(0, 200), time: event.time, ...(context.workspace ? { workspace: context.workspace.slice(0, 1000) } : {}) };
     if (event.type === 'approval/asked') return { ...base, id: `${sessionId}:approval:${event.data.id}`, kind: 'approval', ...(active?.input ? { input: active.input } : {}) };
     if (event.type !== 'turn/end') return;
-    this.turns.delete(sessionId);
+    const matched = active?.turn === event.data.turn ? active : undefined;
+    if (matched) this.turns.delete(sessionId);
     const kind = event.data.reason.kind;
     if (!(KINDS as readonly string[]).includes(kind)) return;
-    const matched = active?.turn === event.data.turn ? active : undefined;
     return { ...base, id: `${sessionId}:turn:${event.data.turn}`, kind: kind as Kind,
       ...(matched ? { durationMs: Math.max(0, event.time - matched.started), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
       ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };

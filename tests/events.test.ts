@@ -91,6 +91,33 @@ it('bounds input and clears it when an agent is forgotten', () => {
   n.forget('s');
   expect(n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)?.input).toBeUndefined();
 });
+it.each(['completed', 'future'])('preserves a newer active turn across a stale %s terminal event', kind => {
+  const n = new EventNormalizer(() => ({ usd: 0.25, fetchedAt: 1000, stale: false }));
+  n.observe('s', '', event('turn/start', { turn: 2 }, 2000), true, context);
+  n.observe('s', '', prompt('Newer input'), true, context);
+  const stale = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind } }, 2500), true, context);
+  if (kind === 'future') expect(stale).toBeUndefined();
+  else {
+    expect(stale).toMatchObject({ id: 's:turn:1', kind: 'completed' });
+    expect(stale).not.toHaveProperty('input');
+    expect(stale).not.toHaveProperty('durationMs');
+  }
+  const message = response(2, { inputTokens: 100, outputTokens: 20 });
+  (message.data as any).message.content = [{ type: 'text', text: 'Newer summary' }];
+  n.observe('s', '', message, true, context);
+  const result = n.observe('s', '', event('turn/end', { turn: 2, reason: { kind: 'completed' } }, 6000), true, context)!;
+  expect(result).toMatchObject({ input: 'Newer input', summary: 'Newer summary', durationMs: 4000,
+    runs: [{ inputTokens: 100, outputTokens: 20, calls: 1 }], usageComplete: true,
+    cost: { usd: 0.25, calls: 1, pricedCalls: 1, fetchedAt: 1000 } });
+  expect(n.observe('s', '', event('approval/asked', { id: 'after' }), true)?.input).toBeUndefined();
+});
+it('clears matching active state even for unknown terminal reasons', () => {
+  const n = new EventNormalizer();
+  n.observe('s', '', event('turn/start', { turn: 1 }), false);
+  n.observe('s', '', prompt('Finished input'), false);
+  expect(n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'future' } }), false)).toBeUndefined();
+  expect(n.observe('s', '', event('approval/asked', { id: 'after' }), false)?.input).toBeUndefined();
+});
 it('freezes per-call estimates into the turn and marks incomplete pricing coverage', () => {
   let rate = 2;
   const n = new EventNormalizer((_provider, model, usage) => model === 'model-a' ? { usd: usage.inputTokens * rate / 1_000_000, fetchedAt: 1000, stale: true } : undefined);
