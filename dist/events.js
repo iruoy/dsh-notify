@@ -1,5 +1,5 @@
 import { KINDS } from './types.js';
-import { isCount as counter, isTimestamp as timestamp } from './state.js';
+import { isCount, isTimestamp } from './state.js';
 function text(content) {
     return content.flatMap(block => {
         if (!block || typeof block !== 'object')
@@ -10,7 +10,7 @@ function text(content) {
 }
 function noticeBase(sessionId, title, time, context) {
     // Do not send prompts or error/approval details as title fallbacks.
-    return { sessionId, title: (title || `Session ${sessionId}`).slice(0, 200), time: timestamp(time) ? time : Date.now(),
+    return { sessionId, title: (title || `Session ${sessionId}`).slice(0, 200), time: isTimestamp(time) ? time : Date.now(),
         ...(context.workspace ? { workspace: context.workspace.slice(0, 1000) } : {}) };
 }
 /** Incrementally fold committed events, without depending on DSH's removed session.events API. */
@@ -92,8 +92,8 @@ export class EventNormalizer {
         const reportedTotal = reported.totalTokens ?? undefined;
         const totalTokens = run.totalTokens !== undefined && reportedTotal !== undefined ? run.totalTokens + reportedTotal : undefined;
         // Host usage is untrusted: a counter that persisted state would reject makes the turn's usage incomplete.
-        if (![reported.inputTokens, reported.outputTokens, reported.cacheReadTokens ?? 0, reported.cacheWriteTokens ?? 0, reportedTotal ?? 0].every(counter)
-            || ![inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens ?? 0].every(counter)) {
+        if (![reported.inputTokens, reported.outputTokens, reported.cacheReadTokens ?? 0, reported.cacheWriteTokens ?? 0, reportedTotal ?? 0].every(isCount)
+            || ![inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens ?? 0].every(isCount)) {
             active.complete = false;
             return;
         }
@@ -118,7 +118,7 @@ export class EventNormalizer {
         if (!KINDS.includes(kind))
             return;
         return { ...base, id: `${base.sessionId}:turn:${event.data.turn}`, kind: kind,
-            ...(matched ? { ...(timestamp(event.time) && timestamp(matched.started) ? { durationMs: Math.max(0, event.time - matched.started) } : {}), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
+            ...(matched ? { ...(isTimestamp(event.time) && isTimestamp(matched.started) ? { durationMs: Math.max(0, event.time - matched.started) } : {}), input: matched.input || undefined, runs: matched.runs, usageComplete: matched.complete, ...(matched.cost ? { cost: matched.cost } : {}) } : {}),
             ...(matched?.summary && includeSummary ? { summary: matched.summary } : {}) };
     }
     forget(id) { this.turns.delete(id); }
