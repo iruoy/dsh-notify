@@ -23,6 +23,25 @@ it('uses only asynchronous filesystem operations for state and pricing persisten
     expect(source).not.toMatch(/\b\w+Sync\s*\(/);
   }
 });
+it('pins every CI action to a full commit SHA and preserves delivery checks', () => {
+  const ci = read('.github/workflows/ci.yml');
+  const actions = [...ci.matchAll(/^\s*- uses:\s*(\S+)(.*)$/gm)];
+  expect(actions.map(([, ref]) => ref.split('@')[0])).toEqual([
+    'actions/checkout', 'pnpm/action-setup', 'actions/setup-node', 'actions/upload-artifact',
+  ]);
+  for (const [, ref, comment] of actions) {
+    expect(ref).toMatch(/^[\w-]+\/[\w-]+@[a-f0-9]{40}$/);
+    expect(comment).toMatch(/# v\d+\.\d+\.\d+/);
+  }
+  expect(ci).toContain('contents: read');
+  expect(ci).toContain('node-version: ${{ matrix.node }}');
+  expect(ci).toContain('cache: pnpm');
+  expect(ci).toContain('pnpm run check');
+  expect(ci).toContain('pnpm exec playwright install --with-deps chromium');
+  expect(ci).toContain('pnpm run test:browser');
+  expect(ci).toContain('if: failure()');
+  expect(ci).toContain('path: test-results/');
+});
 it('declares the documented Node floor and tests it with the tracked package manager', () => {
   const pkg = JSON.parse(read('package.json'));
   expect(pkg.engines.node).toBe('^22.19.0 || >=24.0.0');
