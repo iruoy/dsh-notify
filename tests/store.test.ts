@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
+import { SlackQueue } from '../src/webhook.js';
 import { validateBaseUrl, validateWebhook } from '../src/config.js';
 import { KINDS } from '../src/types.js';
 import { fixture, notice, WEBHOOK } from './fixtures.js';
@@ -76,6 +77,37 @@ describe('durable state and privacy', async () => {
     // Pending jobs older than retained history remain valid on restart.
     expect((await Store.open(store.directory)).state.queue).toHaveLength(100);
   });
+  it('restarts with a repeated notice ID after deduplication expires while Slack is retrying', async () => {
+    const { store, dir } = await setup();
+    const settings = store.view(); settings.slack.events.error = false;
+    await store.update({ revision: settings.revision, settings });
+    await store.add(notice('pending'));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '86400' } }));
+    const queue = new SlackQueue(store, fetcher);
+    try { await queue.tick(); } finally { queue.dispose(); }
+    const pending = structuredClone(store.state.queue[0]);
+    expect(pending.attempts).toBe(1);
+    expect(await store.add(notice('pending'))).toBeUndefined();
+
+    for (let i = 0; i < 2000; i++) await store.add({ ...notice(`newer:${i}`), kind: 'error' });
+    expect(store.state.seen).toHaveLength(2000);
+    expect(store.state.seen).not.toContain('pending');
+    expect(store.state.history.some(entry => entry.seq === pending.seq)).toBe(false);
+    const repeated = await store.add(notice('pending'));
+    expect(repeated?.seq).toBe(2002);
+    expect(store.state.queue.map(item => item.notice.id)).toEqual(['pending', 'pending']);
+    await store.close();
+
+    const restarted = await Store.open(dir);
+    expect(restarted.state).toEqual(store.state);
+    expect(await restarted.add(notice('pending'))).toBeUndefined();
+    const delivery = new SlackQueue(restarted, vi.fn<typeof fetch>().mockResolvedValue(new Response('ok')));
+    try { await delivery.tick(); } finally { delivery.dispose(); }
+    expect(restarted.state.queue).toEqual([pending]);
+    expect(restarted.state.history.at(-1)).toMatchObject({ seq: repeated!.seq, slack: 'delivered', attempts: 1 });
+    await restarted.close();
+    expect((await Store.open(dir)).state).toEqual(restarted.state);
+  });
   it('keeps a successful browser receipt if another device reports failure', async () => {
     const { store } = await setup(); await store.add(notice()); await store.ack(1, true); await store.ack(1, false);
     expect(store.history()[0].browser).toBe('delivered');
@@ -110,6 +142,7 @@ describe('durable state and privacy', async () => {
     ['inconsistent status', (s: any) => { s.history[0].slack = 'delivered'; }],
     ['invalid seen id', (s: any) => { s.seen = [null]; }],
     ['duplicate history', (s: any) => { s.history.push(s.history[0]); }],
+    ['duplicate history ID', (s: any) => { s.history.push({ ...s.history[0], seq: ++s.sequence }); }],
     ['duplicate queue', (s: any) => { s.queue.push(s.queue[0]); }],
     ['oversized history', (s: any) => { s.history = Array(201).fill(s.history[0]); }],
     ['invalid classification', (s: any) => { s.queue[0].notice.isSubagent = 'false'; }],

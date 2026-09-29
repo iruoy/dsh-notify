@@ -57,11 +57,13 @@ export function parseState(value: unknown): State {
     settings: validateSettings(s.settings), webhook: s.webhook === '' ? '' : validateWebhook(s.webhook),
     history: array(s.history, history, 200), queue: array(s.queue, job, 100), seen: array(s.seen, string, 2000) };
   if (new Set(state.seen).size !== state.seen.length) invalid();
+  // History fits within the deduplication window, but pending jobs can outlive it.
+  if (new Set(state.history.map(entry => entry.notice.id)).size !== state.history.length) invalid();
   for (const entries of [state.history, state.queue]) {
-    const sequences = new Set<number>(), ids = new Set<string>();
+    const sequences = new Set<number>();
     for (const entry of entries) {
-      if (!entry.seq || entry.seq > state.sequence || sequences.has(entry.seq) || ids.has(entry.notice.id)) invalid();
-      sequences.add(entry.seq); ids.add(entry.notice.id);
+      if (!entry.seq || entry.seq > state.sequence || sequences.has(entry.seq)) invalid();
+      sequences.add(entry.seq);
     }
   }
   for (let i = 1; i < state.history.length; i++) if (state.history[i - 1].seq >= state.history[i].seq) invalid();
@@ -69,7 +71,6 @@ export function parseState(value: unknown): State {
     const h = state.history.find(entry => entry.seq === item.seq);
     // Queued deliveries may outlive bounded history; only compare retained rows.
     if (!h && (!state.history.length || item.seq >= state.history[0].seq)) invalid();
-    if (state.history.some(entry => entry.notice.id === item.notice.id && entry.seq !== item.seq)) invalid();
     if (h && (!isDeepStrictEqual(h.notice, item.notice) || h.attempts !== item.attempts || !['waiting', 'retrying'].includes(h.slack))) invalid();
   }
   return state;
