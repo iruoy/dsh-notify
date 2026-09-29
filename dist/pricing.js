@@ -125,8 +125,11 @@ export class PricingCache {
             let bytes = 0;
             for await (const chunk of response.body) {
                 bytes += chunk.byteLength;
-                if (bytes > MAX_CATALOG_BYTES)
+                if (bytes > MAX_CATALOG_BYTES) {
+                    // Otherwise estimates silently stay on an ever older snapshot.
+                    console.warn('[dsh-notify] The pricing catalog exceeds the size limit; cost estimates use the last cached prices.');
                     throw new Error('Pricing catalog too large');
+                }
                 chunks.push(chunk);
             }
             const prices = parsePrices(JSON.parse(Buffer.concat(chunks).toString('utf8')));
