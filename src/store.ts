@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defaults, record, validateSettings, validateWebhook, ValidationError } from './config.js';
 import { writeJson } from './persistence.js';
+import { parseState } from './state.js';
 import type { HistoryEntry, Notice, SettingsView, State } from './types.js';
 
 export class ConflictError extends Error {}
@@ -15,9 +16,7 @@ export class Store {
     let state: State;
     let fresh = false;
     try {
-      const raw = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')) as State;
-      if (raw.version !== 1 || !Array.isArray(raw.history) || !Array.isArray(raw.queue) || !Array.isArray(raw.seen) || !Number.isSafeInteger(raw.sequence) || !Number.isSafeInteger(raw.revision)) throw new Error('Unsupported state');
-      state = { ...raw, settings: validateSettings(raw.settings), webhook: raw.webhook ? validateWebhook(raw.webhook) : '' };
+      state = parseState(JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('DSH Notify state could not be read. Restore or move state.json before restarting.');
       state = { version: 1, revision: 0, settings: defaults(baseUrl), webhook: '', sequence: 0, history: [], queue: [], seen: [] };

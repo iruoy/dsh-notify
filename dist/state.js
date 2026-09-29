@@ -1,0 +1,87 @@
+import { isDeepStrictEqual } from 'node:util';
+import { record, validateSettings, validateWebhook } from './config.js';
+import { KINDS } from './types.js';
+function invalid() { throw new Error('Invalid persisted state'); }
+function string(value) { return typeof value === 'string' ? value : invalid(); }
+function boolean(value) { return typeof value === 'boolean' ? value : invalid(); }
+function number(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : invalid();
+}
+function integer(value) { const n = number(value); return Number.isSafeInteger(n) ? n : invalid(); }
+function timestamp(value) { const n = number(value); return n <= 8.64e15 ? n : invalid(); }
+function optional(value, parse) { return value === undefined ? undefined : parse(value); }
+function array(value, parse, max = Infinity) {
+    return Array.isArray(value) && value.length <= max ? value.map(parse) : invalid();
+}
+function run(value) {
+    const r = record(value);
+    const calls = integer(r.calls), reportedCalls = integer(r.reportedCalls);
+    if (reportedCalls > calls)
+        invalid();
+    return { provider: string(r.provider), model: string(r.model), effort: optional(r.effort, string),
+        inputTokens: integer(r.inputTokens), outputTokens: integer(r.outputTokens),
+        cacheReadTokens: integer(r.cacheReadTokens), cacheWriteTokens: integer(r.cacheWriteTokens),
+        totalTokens: optional(r.totalTokens, integer), calls, reportedCalls };
+}
+function notice(value) {
+    const n = record(value);
+    if (!KINDS.includes(n.kind))
+        invalid();
+    let cost;
+    if (n.cost !== undefined) {
+        const c = record(n.cost), calls = integer(c.calls), pricedCalls = integer(c.pricedCalls);
+        if (pricedCalls > calls)
+            invalid();
+        cost = { usd: number(c.usd), calls, pricedCalls, fetchedAt: optional(c.fetchedAt, timestamp), stale: boolean(c.stale) };
+    }
+    return { id: string(n.id), kind: n.kind, sessionId: string(n.sessionId), title: string(n.title), time: timestamp(n.time),
+        isSubagent: optional(n.isSubagent, boolean), durationMs: optional(n.durationMs, number),
+        summary: optional(n.summary, string), workspace: optional(n.workspace, string), input: optional(n.input, string),
+        runs: optional(n.runs, v => array(v, run)), usageComplete: optional(n.usageComplete, boolean), cost };
+}
+function delivery(value) {
+    return ['disabled', 'waiting', 'delivered', 'retrying', 'failed', 'cancelled'].includes(string(value)) ? value : invalid();
+}
+function history(value) {
+    const h = record(value);
+    return { seq: integer(h.seq), notice: notice(h.notice), browser: delivery(h.browser), slack: delivery(h.slack),
+        attempts: integer(h.attempts), nextAttempt: optional(h.nextAttempt, timestamp), error: optional(h.error, string) };
+}
+function job(value) {
+    const j = record(value);
+    return { seq: integer(j.seq), notice: notice(j.notice), attempts: integer(j.attempts), nextAttempt: timestamp(j.nextAttempt) };
+}
+/** Parse all persisted records before migrations can inspect or rewrite them. */
+export function parseState(value) {
+    const s = record(value);
+    if (s.version !== 1)
+        invalid();
+    const state = { version: 1, revision: integer(s.revision), sequence: integer(s.sequence),
+        settings: validateSettings(s.settings), webhook: s.webhook === '' ? '' : validateWebhook(s.webhook),
+        history: array(s.history, history, 200), queue: array(s.queue, job, 100), seen: array(s.seen, string, 2000) };
+    if (new Set(state.seen).size !== state.seen.length)
+        invalid();
+    for (const entries of [state.history, state.queue]) {
+        const sequences = new Set(), ids = new Set();
+        for (const entry of entries) {
+            if (!entry.seq || entry.seq > state.sequence || sequences.has(entry.seq) || ids.has(entry.notice.id))
+                invalid();
+            sequences.add(entry.seq);
+            ids.add(entry.notice.id);
+        }
+    }
+    for (let i = 1; i < state.history.length; i++)
+        if (state.history[i - 1].seq >= state.history[i].seq)
+            invalid();
+    for (const item of state.queue) {
+        const h = state.history.find(entry => entry.seq === item.seq);
+        // Queued deliveries may outlive bounded history; only compare retained rows.
+        if (!h && (!state.history.length || item.seq >= state.history[0].seq))
+            invalid();
+        if (state.history.some(entry => entry.notice.id === item.notice.id && entry.seq !== item.seq))
+            invalid();
+        if (h && (!isDeepStrictEqual(h.notice, item.notice) || h.attempts !== item.attempts || !['waiting', 'retrying'].includes(h.slack)))
+            invalid();
+    }
+    return state;
+}

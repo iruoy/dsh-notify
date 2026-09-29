@@ -73,6 +73,8 @@ describe('durable state and privacy', async () => {
     const { store } = await setup(); for (let i = 0; i < 205; i++) await store.add(notice(String(i)));
     expect(store.state.queue).toHaveLength(100); expect(store.state.history).toHaveLength(200); expect(store.history()).toHaveLength(20);
     expect(store.history()[0]).toMatchObject({ slack: 'failed', error: expect.stringContaining('full') });
+    // Pending jobs older than retained history remain valid on restart.
+    expect((await Store.open(store.directory)).state.queue).toHaveLength(100);
   });
   it('keeps a successful browser receipt if another device reports failure', async () => {
     const { store } = await setup(); await store.add(notice()); await store.ack(1, true); await store.ack(1, false);
@@ -90,6 +92,36 @@ describe('durable state and privacy', async () => {
     expect((await Store.open(dir)).history()[0].browser).toBe('delivered');
     await expect(store.ack(999, true)).rejects.toThrow('Unknown browser delivery');
     expect(commits).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ['null queue item', (s: any) => { s.queue[0] = null; }],
+    ['missing notice', (s: any) => { delete s.queue[0].notice; }],
+    ['invalid kind', (s: any) => { s.queue[0].notice.kind = 'future'; }],
+    ['invalid delivery', (s: any) => { s.history[0].slack = 'sent'; }],
+    ['unsafe sequence', (s: any) => { s.sequence = Number.MAX_SAFE_INTEGER + 1; }],
+    ['negative revision', (s: any) => { s.revision = -1; }],
+    ['future queue sequence', (s: any) => { s.queue[0].seq = s.sequence + 1; }],
+    ['zero history sequence', (s: any) => { s.history[0].seq = 0; }],
+    ['null history entry', (s: any) => { s.history[0] = null; }],
+    ['invalid timestamp', (s: any) => { s.history[0].notice.time = 9e15; }],
+    ['invalid attempts', (s: any) => { s.queue[0].attempts = -1; }],
+    ['missing retry timestamp', (s: any) => { delete s.queue[0].nextAttempt; }],
+    ['inconsistent notice', (s: any) => { s.queue[0].notice.id = 'different'; }],
+    ['inconsistent status', (s: any) => { s.history[0].slack = 'delivered'; }],
+    ['invalid seen id', (s: any) => { s.seen = [null]; }],
+    ['duplicate history', (s: any) => { s.history.push(s.history[0]); }],
+    ['duplicate queue', (s: any) => { s.queue.push(s.queue[0]); }],
+    ['oversized history', (s: any) => { s.history = Array(201).fill(s.history[0]); }],
+    ['invalid classification', (s: any) => { s.queue[0].notice.isSubagent = 'false'; }],
+    ['invalid usage', (s: any) => { s.history[0].notice.runs = [null]; }],
+    ['invalid cost coverage', (s: any) => { s.history[0].notice.cost = { usd: 0, calls: 1, pricedCalls: 2, stale: false }; }],
+  ])('refuses parseable malformed state: %s without touching disk', async (_name, corrupt) => {
+    const { store, dir } = await setup(); await store.add(notice());
+    const raw = JSON.parse(JSON.stringify(store.state)); corrupt(raw);
+    const original = JSON.stringify(raw); const path = join(dir, 'state.json');
+    writeFileSync(path, original);
+    await expect(Store.open(dir)).rejects.toThrow('DSH Notify state could not be read.');
+    expect(readFileSync(path, 'utf8')).toBe(original);
   });
   it('refuses corrupted state rather than overwriting queued work', async () => {
     const { dir } = await setup(); writeFileSync(join(dir, 'state.json'), '{broken');
