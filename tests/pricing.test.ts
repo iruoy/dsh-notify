@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PricingCache, PRICING_TTL, PRICING_URL } from '../src/pricing.js';
+import { MAX_CATALOG_BYTES, PricingCache, PRICING_TTL, PRICING_URL } from '../src/pricing.js';
 import { fixture } from './fixtures.js';
 import * as persistence from '../src/persistence.js';
 
@@ -58,17 +58,19 @@ it.each([{}, { openai: { models: { gpt: { cost: { input: -1, output: 1 } } } }, 
   f.advance(PRICING_TTL); f.fetcher.mockResolvedValueOnce(Response.json(bad)); await f.cache.refresh();
   expect(f.cache.estimate('anthropic', 'claude', usage)).toEqual({ ...initial, stale: true });
 });
-it('cancels catalogs exceeding 20 MiB without replacing the last good cache', async () => {
+it('cancels catalogs exceeding the size limit without replacing the last good cache', async () => {
   const f = await setup(); await f.cache.refresh();
   const saved = readFileSync(join(f.dir, 'pricing.json'), 'utf8');
-  const cancel = vi.fn();
+  const cancel = vi.fn(); let pulled = 0;
   f.advance(PRICING_TTL);
   f.fetcher.mockResolvedValueOnce(new Response(new ReadableStream({
-    pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024)); },
+    pull(controller) { pulled++; controller.enqueue(new Uint8Array(1024 * 1024)); },
     cancel,
   })));
   await f.cache.refresh();
   expect(cancel).toHaveBeenCalledTimes(1);
+  // Stops within the limit plus the stream's read-ahead.
+  expect(pulled).toBeLessThanOrEqual(MAX_CATALOG_BYTES / (1024 * 1024) + 2);
   expect(readFileSync(join(f.dir, 'pricing.json'), 'utf8')).toBe(saved);
   expect(f.cache.estimate('anthropic', 'claude', usage)?.stale).toBe(true);
 });
@@ -149,4 +151,21 @@ it.each(['claude', 'claude-code'])('prices %s using Anthropic rates without gues
   expect(f.cache.estimate(provider, 'sonnet', usage)).toBeUndefined();
   const restarted = await PricingCache.open(f.dir, f.fetcher, f.now); clean.push(() => restarted.dispose());
   expect(restarted.estimate(provider, 'claude', usage)).toEqual(expected);
+});
+it('accepts a near-limit catalog within a bounded event-loop pause', async () => {
+  // Realistic shape: many small model records, as models.dev ships for other providers.
+  const models: Record<string, unknown> = {};
+  const record = (i: number) => ({ id: `model-${i}`, name: `Filler model ${i}`, cost: { input: 1, output: 2, cache_read: 0.1 }, limit: { context: 128000, output: 8192 }, modalities: { input: ['text'], output: ['text'] } });
+  const size = JSON.stringify(record(99999)).length + 16;
+  for (let i = 0; i < MAX_CATALOG_BYTES * 0.97 / size; i++) models[`model-${i}`] = record(i);
+  const body = JSON.stringify({ ...catalog(), filler: { models } });
+  expect(body.length).toBeGreaterThan(MAX_CATALOG_BYTES * 0.9);
+  expect(body.length).toBeLessThanOrEqual(MAX_CATALOG_BYTES);
+  const f = await setup(vi.fn<typeof fetch>(async () => new Response(body)));
+  let last = performance.now(), maxGap = 0;
+  const timer = setInterval(() => { const now = performance.now(); maxGap = Math.max(maxGap, now - last); last = now; }, 1);
+  try { await f.cache.refresh(); } finally { clearInterval(timer); }
+  expect(f.cache.estimate('anthropic', 'claude', usage)?.stale).toBe(false);
+  // Generous for slow CI; measured about 90 ms locally.
+  expect(maxGap).toBeLessThan(500);
 });

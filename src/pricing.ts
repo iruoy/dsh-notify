@@ -4,6 +4,9 @@ import { writeJson } from './persistence.js';
 
 export const PRICING_URL = 'https://models.dev/api.json';
 export const PRICING_TTL = 24 * 60 * 60 * 1000;
+// models.dev served 5.0 MiB (about 35 ms to parse) in September 2026. Twice that
+// leaves room for growth while bounding the hourly-at-most background pause to about 100 ms.
+export const MAX_CATALOG_BYTES = 10 * 1024 * 1024;
 export function publicPricingProvider(provider: string): string {
   if (provider === 'codex') return 'openai';
   if (provider === 'claude' || provider === 'claude-code') return 'anthropic';
@@ -105,7 +108,7 @@ export class PricingCache {
       let bytes = 0;
       for await (const chunk of response.body) {
         bytes += chunk.byteLength;
-        if (bytes > 20 * 1024 * 1024) throw new Error('Pricing catalog too large');
+        if (bytes > MAX_CATALOG_BYTES) throw new Error('Pricing catalog too large');
         chunks.push(chunk);
       }
       const prices = parsePrices(JSON.parse(Buffer.concat(chunks).toString('utf8')));
