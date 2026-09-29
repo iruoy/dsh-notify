@@ -51,11 +51,13 @@ export function slackPayload(notice: Notice, baseUrl: string): object {
   // Escape Slack's fallback mrkdwn to avoid titles triggering mentions.
   return { text: title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'), blocks, unfurl_links: false, unfurl_media: false };
 }
+// Bound server-supplied delays so the persisted retry time always stays a valid timestamp.
+const MAX_RETRY_DELAY = 24 * 60 * 60 * 1000;
 export function retryDelay(header: string | null, attempt: number, now = Date.now()): number {
   const seconds = header === null ? NaN : Number(header);
   const date = header === null ? NaN : Date.parse(header);
   const supplied = Number.isFinite(seconds) ? seconds * 1000 : date - now;
-  return Number.isFinite(supplied) && supplied >= 0 ? Math.max(1000, supplied) : Math.min(300_000, 1000 * 2 ** attempt);
+  return Number.isFinite(supplied) && supplied >= 0 ? Math.min(MAX_RETRY_DELAY, Math.max(1000, supplied)) : Math.min(300_000, 1000 * 2 ** attempt);
 }
 export interface SendResult { ok: boolean; retry: boolean; error?: string; delay?: number }
 export async function sendSlack(url: string, payload: object, attempt: number, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<SendResult> {
