@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import { expect, it, vi } from 'vitest';
 import * as plugin from '../src/index.js';
@@ -83,6 +85,12 @@ it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly
       }
     }
     expect((await Store.open(f.dir)).state.history).toEqual([]);
+    const writer = vi.spyOn(persistence, 'writeJson');
+    const publish = vi.spyOn(BrowserStream.prototype, 'publish').mockImplementation(() => {
+      // Publication happens only after the whole burst is durable.
+      expect(JSON.parse(readFileSync(join(f.dir, 'state.json'), 'utf8')).sequence).toBe(50);
+      return true as any;
+    });
     const flush = () => transition === 'idle'
       ? ctx.parallel('agent/status', { agent: root, status: 'idle' } as any)
       : ctx.parallel('agent/disposed', { agent: root } as any);
@@ -91,7 +99,9 @@ it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly
     expect(saved.history.map(h => h.notice.id)).toEqual(Array.from({ length: 50 }, (_, i) => `root:turn:${i + 1}`));
     expect(saved.sequence).toBe(50);
     expect(saved.seen).toHaveLength(50);
-  } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls.map(([entry]) => entry.seq)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+  } finally { await ctx.fiber.dispose(); vi.restoreAllMocks(); f.cleanup(); }
 });
 
 it.each([false, true])('waits for persistence before publication and drains shutdown (shutdown=%s)', async shutdown => {

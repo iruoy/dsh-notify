@@ -33,8 +33,10 @@ export async function apply(ctx: Context, config: PluginConfig = {}): Promise<vo
   const queue = new SlackQueue(store), stream = new BrowserStream(store), gate = new CompletionGate(), normalizer = new EventNormalizer(pricing.estimate);
   const rootSessions = new Set<string>();
   let stopped = false;
-  const emit = async (notice: Notice): Promise<void> => {
-    try { const entry = await store.add(notice); if (entry && !stopped) stream.publish(entry); }
+  const emit = async (...notices: Notice[]): Promise<void> => {
+    if (!notices.length) return;
+    // Publish only after the whole burst is durable, in sequence order.
+    try { const entries = await store.addMany(notices); if (!stopped) for (const entry of entries) stream.publish(entry); }
     catch { console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.'); }
   };
   ctx.on('session/event', async (session, event) => {
@@ -56,12 +58,12 @@ export async function apply(ctx: Context, config: PluginConfig = {}): Promise<vo
   }, { prepend: true });
   ctx.on('agent/status', async ({ agent, status }) => {
     if (status !== 'idle') return;
-    await Promise.all(gate.flush(String(agent.id)).map(emit));
+    await emit(...gate.flush(String(agent.id)));
   });
   ctx.on('agent/disposed', async ({ agent }) => {
     normalizer.forget(String(agent.id));
     // A terminal event may be followed by disposal without another idle transition.
-    await Promise.all(gate.flush(String(agent.id)).map(emit));
+    await emit(...gate.flush(String(agent.id)));
     rootSessions.delete(String(agent.id));
   });
   ctx.effect(() => {

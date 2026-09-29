@@ -2,7 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defaults, record, validateSettings, validateWebhook, ValidationError } from './config.js';
 import { writeJson } from './persistence.js';
-import { parseState } from './state.js';
+import { parseNotice, parseState } from './state.js';
 import type { HistoryEntry, Notice, SettingsView, State } from './types.js';
 
 export class ConflictError extends Error {}
@@ -97,28 +97,43 @@ export class Store {
       return this.view();
     });
   }
-  add(value: Notice): Promise<HistoryEntry | undefined> {
-    const notice = structuredClone(value);
+  add(value: Notice): Promise<HistoryEntry | undefined> { return this.addMany([value]).then(([entry]) => entry); }
+  /** Commit accepted notices in order with one durable snapshot write. */
+  addMany(values: readonly Notice[]): Promise<HistoryEntry[]> {
+    let notices: Notice[];
+    // Every committed notice must be reopenable; reject the batch before any mutation.
+    try { notices = values.map(value => parseNotice(JSON.parse(JSON.stringify(value)))); }
+    catch { return Promise.reject(new ValidationError('Invalid notification.')); }
     return this.enqueue(async () => {
-      if (this.state.seen.includes(notice.id)) return;
-      const { browser, slack } = this.state.settings;
-      const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
-      const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && this.slackAgentAllowed({ ...notice, isSubagent: notice.isSubagent ?? false });
-      if (!toBrowser && !toSlack) return;
-      let entry: HistoryEntry | undefined;
-      await this.commit(s => {
-        // Persist the default explicitly so new main-task notices survive restart.
-        notice.isSubagent ??= false;
-        if (!s.settings.slack.includeSummary) delete notice.summary;
-        entry = { seq: ++s.sequence, notice, browser: toBrowser ? 'waiting' : 'disabled', slack: toSlack ? 'waiting' : 'disabled', attempts: 0 };
-        s.seen = [...s.seen, notice.id].slice(-2000);
-        s.history = [...s.history, entry].slice(-200);
-        if (toSlack) {
-          if (s.queue.length >= 100) { entry.slack = 'failed'; entry.error = 'Slack queue is full (100 pending deliveries).'; }
-          else s.queue.push({ seq: entry.seq, notice, attempts: 0, nextAttempt: Date.now() });
-        }
+      const { browser, slack } = this.state.settings, ids = new Set(this.state.seen);
+      const accepted = notices.flatMap(notice => {
+        if (ids.has(notice.id)) return [];
+        const toBrowser = browser.enabled && browser.events[notice.kind] && (!notice.isSubagent || this.state.settings.notifySubagents);
+        const toSlack = slack.enabled && slack.events[notice.kind] && Boolean(this.state.webhook) && this.slackAgentAllowed({ ...notice, isSubagent: notice.isSubagent ?? false });
+        if (!toBrowser && !toSlack) return [];
+        ids.add(notice.id);
+        return [{ notice, toBrowser, toSlack }];
       });
-      return entry;
+      if (!accepted.length) return [];
+      const entries: HistoryEntry[] = [];
+      await this.commit(s => {
+        for (const { notice, toBrowser, toSlack } of accepted) {
+          // Persist the default explicitly so new main-task notices survive restart.
+          notice.isSubagent ??= false;
+          if (!s.settings.slack.includeSummary) delete notice.summary;
+          const entry: HistoryEntry = { seq: ++s.sequence, notice, browser: toBrowser ? 'waiting' : 'disabled', slack: toSlack ? 'waiting' : 'disabled', attempts: 0 };
+          entries.push(entry);
+          s.seen.push(notice.id);
+          s.history.push(entry);
+          if (toSlack) {
+            if (s.queue.length >= 100) { entry.slack = 'failed'; entry.error = 'Slack queue is full (100 pending deliveries).'; }
+            else s.queue.push({ seq: entry.seq, notice, attempts: 0, nextAttempt: Date.now() });
+          }
+        }
+        s.seen = s.seen.slice(-2000);
+        s.history = s.history.slice(-200);
+      });
+      return entries;
     });
   }
   ack(seq: number, delivered: boolean): Promise<void> {

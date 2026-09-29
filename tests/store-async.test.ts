@@ -5,6 +5,7 @@ import * as persistence from '../src/persistence.js';
 import { ConflictError, Store } from '../src/store.js';
 import { SlackQueue } from '../src/webhook.js';
 import { fixture, notice, WEBHOOK } from './fixtures.js';
+import type { Notice } from '../src/types.js';
 
 const clean: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const fn of clean.splice(0)) await fn(); vi.restoreAllMocks(); });
@@ -125,4 +126,40 @@ it('drains accepted writes at shutdown and refuses new mutations', async () => {
   } finally { gate.release.resolve(); }
   await Promise.all([pending, closing]);
   expect((await Store.open(f.dir)).state.history).toHaveLength(1);
+});
+it('commits an ordered, deduplicated batch with one snapshot write', async () => {
+  const f = await setup(); await f.store.add(notice('existing'));
+  const writer = vi.spyOn(persistence, 'writeJson');
+  const entries = await f.store.addMany([notice('a'), notice('existing'), notice('b'), notice('a'), notice('c')]);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(entries.map(entry => [entry.seq, entry.notice.id])).toEqual([[2, 'a'], [3, 'b'], [4, 'c']]);
+  expect(await f.store.addMany([notice('a')])).toEqual([]);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect((await Store.open(f.dir)).state).toEqual(f.store.state);
+});
+it.each([
+  ['a NaN counter', { runs: [{ provider: 'p', model: 'm', inputTokens: NaN, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1, reportedCalls: 1 }] }],
+  ['a negative duration', { durationMs: -1 }],
+  ['an unknown kind', { kind: 'future' }],
+  ['more priced calls than calls', { cost: { usd: 1, calls: 1, pricedCalls: 2, stale: false } }],
+])('rejects a batch containing %s before mutation and keeps state reopenable', async (_label, patch) => {
+  const f = await setup(); const before = structuredClone(f.store.state);
+  const writer = vi.spyOn(persistence, 'writeJson');
+  await expect(f.store.addMany([notice('valid'), { ...notice('invalid'), ...patch } as Notice])).rejects.toThrow('Invalid notification');
+  expect(writer).not.toHaveBeenCalled();
+  expect(f.store.state).toEqual(before);
+  expect((await f.store.add(notice('later')))?.seq).toBe(1);
+  expect((await Store.open(f.dir)).state.history.map(h => h.notice.id)).toEqual(['later']);
+});
+it.each(['before', 'after'])('keeps a batch atomic when persistence fails %s rename', async when => {
+  const f = await setup(); const before = structuredClone(f.store.state); const original = persistence.writeJson;
+  vi.spyOn(persistence, 'writeJson').mockImplementationOnce(async (path, value) => {
+    if (when === 'after') await original(path, value);
+    throw new Error('Simulated persistence failure');
+  });
+  await expect(f.store.addMany([notice('a'), notice('b')])).rejects.toThrow('could not be saved');
+  expect(f.store.state).toEqual(before);
+  await expect(f.store.addMany([notice('c')])).rejects.toThrow('Restart');
+  const restarted = await Store.open(f.dir);
+  expect(restarted.state.history.map(h => h.notice.id)).toEqual(when === 'after' ? ['a', 'b'] : []);
 });

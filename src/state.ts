@@ -23,7 +23,7 @@ function run(value: unknown): RunUsage {
     cacheReadTokens: integer(r.cacheReadTokens), cacheWriteTokens: integer(r.cacheWriteTokens),
     totalTokens: optional(r.totalTokens, integer), calls, reportedCalls };
 }
-function notice(value: unknown): Notice {
+export function parseNotice(value: unknown): Notice {
   const n = record(value);
   if (!(KINDS as readonly unknown[]).includes(n.kind)) invalid();
   let cost: Notice['cost'];
@@ -42,12 +42,12 @@ function delivery(value: unknown): Delivery {
 }
 function history(value: unknown): HistoryEntry {
   const h = record(value);
-  return { seq: integer(h.seq), notice: notice(h.notice), browser: delivery(h.browser), slack: delivery(h.slack),
+  return { seq: integer(h.seq), notice: parseNotice(h.notice), browser: delivery(h.browser), slack: delivery(h.slack),
     attempts: integer(h.attempts), nextAttempt: optional(h.nextAttempt, timestamp), error: optional(h.error, string) };
 }
 function job(value: unknown): State['queue'][number] {
   const j = record(value);
-  return { seq: integer(j.seq), notice: notice(j.notice), attempts: integer(j.attempts), nextAttempt: timestamp(j.nextAttempt) };
+  return { seq: integer(j.seq), notice: parseNotice(j.notice), attempts: integer(j.attempts), nextAttempt: timestamp(j.nextAttempt) };
 }
 /** Parse all persisted records before migrations can inspect or rewrite them. */
 export function parseState(value: unknown): State {

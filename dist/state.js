@@ -23,7 +23,7 @@ function run(value) {
         cacheReadTokens: integer(r.cacheReadTokens), cacheWriteTokens: integer(r.cacheWriteTokens),
         totalTokens: optional(r.totalTokens, integer), calls, reportedCalls };
 }
-function notice(value) {
+export function parseNotice(value) {
     const n = record(value);
     if (!KINDS.includes(n.kind))
         invalid();
@@ -44,12 +44,12 @@ function delivery(value) {
 }
 function history(value) {
     const h = record(value);
-    return { seq: integer(h.seq), notice: notice(h.notice), browser: delivery(h.browser), slack: delivery(h.slack),
+    return { seq: integer(h.seq), notice: parseNotice(h.notice), browser: delivery(h.browser), slack: delivery(h.slack),
         attempts: integer(h.attempts), nextAttempt: optional(h.nextAttempt, timestamp), error: optional(h.error, string) };
 }
 function job(value) {
     const j = record(value);
-    return { seq: integer(j.seq), notice: notice(j.notice), attempts: integer(j.attempts), nextAttempt: timestamp(j.nextAttempt) };
+    return { seq: integer(j.seq), notice: parseNotice(j.notice), attempts: integer(j.attempts), nextAttempt: timestamp(j.nextAttempt) };
 }
 /** Parse all persisted records before migrations can inspect or rewrite them. */
 export function parseState(value) {
