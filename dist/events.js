@@ -88,9 +88,11 @@ export class EventNormalizer {
     recordUsage(active, run, reported) {
         const inputTokens = run.inputTokens + reported.inputTokens, outputTokens = run.outputTokens + reported.outputTokens;
         const cacheReadTokens = run.cacheReadTokens + (reported.cacheReadTokens ?? 0), cacheWriteTokens = run.cacheWriteTokens + (reported.cacheWriteTokens ?? 0);
-        const totalTokens = run.totalTokens !== undefined && reported.totalTokens !== undefined ? run.totalTokens + reported.totalTokens : undefined;
+        // A null total is as unreported as a missing one; never sum it as zero.
+        const reportedTotal = reported.totalTokens ?? undefined;
+        const totalTokens = run.totalTokens !== undefined && reportedTotal !== undefined ? run.totalTokens + reportedTotal : undefined;
         // Host usage is untrusted: a counter that persisted state would reject makes the turn's usage incomplete.
-        if (![reported.inputTokens, reported.outputTokens, reported.cacheReadTokens ?? 0, reported.cacheWriteTokens ?? 0, reported.totalTokens ?? 0].every(counter)
+        if (![reported.inputTokens, reported.outputTokens, reported.cacheReadTokens ?? 0, reported.cacheWriteTokens ?? 0, reportedTotal ?? 0].every(counter)
             || ![inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens ?? 0].every(counter)) {
             active.complete = false;
             return;

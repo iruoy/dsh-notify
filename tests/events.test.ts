@@ -170,3 +170,12 @@ it('never emits invalid timestamps or durations', () => {
   expect(Number.isFinite(result.time) && result.time > 0).toBe(true);
   expect(result).not.toHaveProperty('durationMs');
 });
+it('treats a null call total as unreported instead of zero', () => {
+  const n = new EventNormalizer();
+  n.observe('s', '', event('turn/start', { turn: 1 }), false);
+  n.observe('s', '', response(1, { inputTokens: 10, outputTokens: 2, totalTokens: 12 }), false, context);
+  n.observe('s', '', response(1, { inputTokens: 1, outputTokens: 1, totalTokens: null }), false, context);
+  const result = n.observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'completed' } }), false)!;
+  expect(result.runs?.[0].totalTokens).toBeUndefined();
+  expect(result.runs?.[0].inputTokens).toBe(11);
+});
