@@ -47,10 +47,11 @@ export async function apply(ctx: Context, config: PluginConfig = {}): Promise<vo
   ctx.on('session/event', async (session, event) => {
     const agent = ctx.agents.get(session.id);
     if (!agent) return;
-    if (ctx.agents.roots().includes(agent)) rootSessions.add(String(agent.id));
     const title = ctx.get('sessionTitle')?.get(session)?.title;
     const notice = normalizer.observe(String(session.id), title, event, store.state.settings.slack.includeSummary, { workspace: session.header?.cwd, config: session.requestHeader?.()?.config });
     if (!notice) return;
+    // Only notice-producing events need root classification.
+    if (ctx.agents.roots().includes(agent)) rootSessions.add(String(agent.id));
     notice.isSubagent = !rootSessions.has(String(agent.id));
     if (notice.kind === 'approval' || agent.status === 'idle') await emit(notice);
     else gate.enqueue(notice);
