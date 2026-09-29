@@ -105,7 +105,10 @@ export class SlackQueue {
         this.fetcher = fetcher;
     }
     start() {
-        this.timer = setInterval(() => { void this.tick().catch(() => console.warn('[dsh-notify] Queue state could not be saved.')); }, 1000);
+        // Store failures are permanent until restart; warn once instead of every tick.
+        let warned = false;
+        this.timer = setInterval(() => { void this.tick().catch(() => { if (!warned)
+            console.warn('[dsh-notify] Queue state could not be saved.'); warned = true; }); }, 1000);
         this.timer.unref();
     }
     dispose() { this.stopped = true; clearInterval(this.timer); this.controller.abort(); }
