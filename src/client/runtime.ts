@@ -1,12 +1,15 @@
 import { API, LABELS, type Notice } from '../types.js';
 
+export class RequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 export async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch(API + path, {
     method, credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-dsh-notify': '1' },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }), signal: AbortSignal.timeout(15_000),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
+  if (!response.ok) throw new RequestError(result.error || `Request failed (${response.status}).`, response.status);
   return result as T;
 }
 export function permissionStatus(): string {
@@ -87,9 +90,14 @@ export class BrowserRuntime {
     this.acknowledging.add(seq);
     void request('/ack', 'POST', { seq, delivered: true }).then(() => {
       this.receipts.delete(seq);
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      if (error instanceof RequestError && error.status === 400) {
+        // The server no longer retains this sequence; retrying cannot restore it.
+        this.receipts.delete(seq);
+        return;
+      }
       if (this.stopped) return;
-      this.setStatus('Notification receipt could not be saved — retrying');
+      if (!this.paused) this.setStatus('Notification receipt could not be saved — retrying');
       if (!this.receiptRetry) this.receiptRetry = setTimeout(() => {
         this.receiptRetry = undefined;
         for (const pending of this.receipts) this.acknowledge(pending);
@@ -123,6 +131,8 @@ export class BrowserRuntime {
         }
         this.saveCursor(seq);
         this.receipts.add(seq);
+        // Only 200 records can still be acknowledged in the server history.
+        if (this.receipts.size > 200) this.receipts.delete(this.receipts.values().next().value!);
         this.acknowledge(seq);
       } catch { this.pause('Invalid notification received — focus this tab to retry.'); }
     });

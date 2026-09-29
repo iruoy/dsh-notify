@@ -41,6 +41,13 @@ var LABELS = {
 var API = "/api/dsh-notify";
 
 // src/client/runtime.ts
+var RequestError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+  status;
+};
 async function request(path, method = "GET", data) {
   const response = await fetch(API + path, {
     method,
@@ -50,7 +57,7 @@ async function request(path, method = "GET", data) {
     signal: AbortSignal.timeout(15e3)
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
+  if (!response.ok) throw new RequestError(result.error || `Request failed (${response.status}).`, response.status);
   return result;
 }
 function permissionStatus() {
@@ -160,9 +167,13 @@ var BrowserRuntime = class {
     this.acknowledging.add(seq);
     void request("/ack", "POST", { seq, delivered: true }).then(() => {
       this.receipts.delete(seq);
-    }).catch(() => {
+    }).catch((error) => {
+      if (error instanceof RequestError && error.status === 400) {
+        this.receipts.delete(seq);
+        return;
+      }
       if (this.stopped) return;
-      this.setStatus("Notification receipt could not be saved \u2014 retrying");
+      if (!this.paused) this.setStatus("Notification receipt could not be saved \u2014 retrying");
       if (!this.receiptRetry) this.receiptRetry = setTimeout(() => {
         this.receiptRetry = void 0;
         for (const pending of this.receipts) this.acknowledge(pending);
@@ -209,6 +220,7 @@ var BrowserRuntime = class {
         }
         this.saveCursor(seq);
         this.receipts.add(seq);
+        if (this.receipts.size > 200) this.receipts.delete(this.receipts.values().next().value);
         this.acknowledge(seq);
       } catch {
         this.pause("Invalid notification received \u2014 focus this tab to retry.");
