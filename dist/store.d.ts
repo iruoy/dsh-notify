@@ -20,8 +20,11 @@ export declare class Store {
     view(): SettingsView;
     update(value: unknown): Promise<SettingsView>;
     add(value: Notice): Promise<HistoryEntry | undefined>;
-    /** Commit accepted notices in order with one durable snapshot write. */
-    addMany(values: readonly Notice[]): Promise<HistoryEntry[]>;
+    /** Commit accepted notices in order with one durable snapshot write, skipping any that fail validation. */
+    addMany(values: readonly Notice[]): Promise<{
+        entries: HistoryEntry[];
+        invalid: number;
+    }>;
     ack(seq: number, delivered: boolean): Promise<void>;
     history(): HistoryEntry[];
 }

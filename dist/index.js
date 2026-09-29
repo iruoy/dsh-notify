@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Config, ValidationError } from './config.js';
+import { Config } from './config.js';
 import { EventNormalizer, CompletionGate } from './events.js';
 import { Store } from './store.js';
 import { SlackQueue } from './webhook.js';
@@ -23,22 +23,16 @@ export async function apply(ctx, config = {}) {
             return;
         // Publish only after the whole burst is durable, in sequence order.
         try {
-            const entries = await store.addMany(notices);
+            // The store skips malformed notices, so one cannot discard the rest of its burst.
+            const { entries, invalid } = await store.addMany(notices);
+            if (invalid)
+                console.warn(invalid === 1 ? '[dsh-notify] An invalid notification was skipped.' : `[dsh-notify] ${invalid} invalid notifications were skipped.`);
             if (!stopped)
                 for (const entry of entries)
                     stream.publish(entry);
         }
-        catch (error) {
-            if (!(error instanceof ValidationError)) {
-                console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.');
-                return;
-            }
-            // One malformed notice must not discard the rest of its burst.
-            if (notices.length > 1)
-                for (const notice of notices)
-                    await emit(notice);
-            else
-                console.warn('[dsh-notify] An invalid notification was skipped.');
+        catch {
+            console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.');
         }
     };
     ctx.on('session/event', async (session, event) => {

@@ -130,10 +130,11 @@ it('drains accepted writes at shutdown and refuses new mutations', async () => {
 it('commits an ordered, deduplicated batch with one snapshot write', async () => {
   const f = await setup(); await f.store.add(notice('existing'));
   const writer = vi.spyOn(persistence, 'writeJson');
-  const entries = await f.store.addMany([notice('a'), notice('existing'), notice('b'), notice('a'), notice('c')]);
+  const { entries, invalid } = await f.store.addMany([notice('a'), notice('existing'), notice('b'), notice('a'), notice('c')]);
   expect(writer).toHaveBeenCalledTimes(1);
+  expect(invalid).toBe(0);
   expect(entries.map(entry => [entry.seq, entry.notice.id])).toEqual([[2, 'a'], [3, 'b'], [4, 'c']]);
-  expect(await f.store.addMany([notice('a')])).toEqual([]);
+  expect(await f.store.addMany([notice('a')])).toEqual({ entries: [], invalid: 0 });
   expect(writer).toHaveBeenCalledTimes(1);
   expect((await Store.open(f.dir)).state).toEqual(f.store.state);
 });
@@ -142,14 +143,20 @@ it.each([
   ['a negative duration', { durationMs: -1 }],
   ['an unknown kind', { kind: 'future' }],
   ['more priced calls than calls', { cost: { usd: 1, calls: 1, pricedCalls: 2, stale: false } }],
-])('rejects a batch containing %s before mutation and keeps state reopenable', async (_label, patch) => {
-  const f = await setup(); const before = structuredClone(f.store.state);
+])('skips only a notice with %s and commits the rest in one reopenable snapshot', async (_label, patch) => {
+  const f = await setup();
   const writer = vi.spyOn(persistence, 'writeJson');
-  await expect(f.store.addMany([notice('valid'), { ...notice('invalid'), ...patch } as Notice])).rejects.toThrow('Invalid notification');
-  expect(writer).not.toHaveBeenCalled();
-  expect(f.store.state).toEqual(before);
-  expect((await f.store.add(notice('later')))?.seq).toBe(1);
-  expect((await Store.open(f.dir)).state.history.map(h => h.notice.id)).toEqual(['later']);
+  const { entries, invalid } = await f.store.addMany([notice('a'), { ...notice('invalid'), ...patch } as Notice, notice('b')]);
+  expect(invalid).toBe(1);
+  expect(entries.map(entry => [entry.seq, entry.notice.id])).toEqual([[1, 'a'], [2, 'b']]);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(f.store.state.seen).not.toContain('invalid');
+  // A batch with nothing valid left does not write.
+  expect(await f.store.addMany([{ ...notice('invalid'), ...patch } as Notice])).toEqual({ entries: [], invalid: 1 });
+  await expect(f.store.add({ ...notice('invalid'), ...patch } as Notice)).rejects.toThrow('Invalid notification');
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect((await f.store.add(notice('later')))?.seq).toBe(3);
+  expect((await Store.open(f.dir)).state.history.map(h => h.notice.id)).toEqual(['a', 'b', 'later']);
 });
 it.each(['before', 'after'])('keeps a batch atomic when persistence fails %s rename', async when => {
   const f = await setup(); const before = structuredClone(f.store.state); const original = persistence.writeJson;

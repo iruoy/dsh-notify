@@ -124,17 +124,25 @@ export class Store {
             return this.view();
         });
     }
-    add(value) { return this.addMany([value]).then(([entry]) => entry); }
-    /** Commit accepted notices in order with one durable snapshot write. */
+    add(value) {
+        return this.addMany([value]).then(({ entries: [entry], invalid }) => {
+            if (invalid)
+                throw new ValidationError('Invalid notification.');
+            return entry;
+        });
+    }
+    /** Commit accepted notices in order with one durable snapshot write, skipping any that fail validation. */
     addMany(values) {
-        let notices;
-        // Every committed notice must be reopenable; reject the batch before any mutation.
-        try {
-            notices = values.map(value => parseNotice(JSON.parse(JSON.stringify(value))));
-        }
-        catch {
-            return Promise.reject(new ValidationError('Invalid notification.'));
-        }
+        // Every committed notice must be reopenable; drop invalid ones before any mutation so the rest stay atomic.
+        const notices = values.flatMap(value => {
+            try {
+                return [parseNotice(JSON.parse(JSON.stringify(value)))];
+            }
+            catch {
+                return [];
+            }
+        });
+        const invalid = values.length - notices.length;
         return this.enqueue(async () => {
             const { browser, slack } = this.state.settings, ids = new Set(this.state.seen);
             const accepted = notices.flatMap(notice => {
@@ -148,7 +156,7 @@ export class Store {
                 return [{ notice, toBrowser, toSlack }];
             });
             if (!accepted.length)
-                return [];
+                return { entries: [], invalid };
             const entries = [];
             await this.commit(s => {
                 for (const { notice, toBrowser, toSlack } of accepted) {
@@ -172,7 +180,7 @@ export class Store {
                 s.seen = s.seen.slice(-2000);
                 s.history = s.history.slice(-200);
             });
-            return entries;
+            return { entries, invalid };
         });
     }
     ack(seq, delivered) {
