@@ -31,6 +31,16 @@ describe('event interpretation', () => {
   it('does not invent an error for unknown future end reasons', () => {
     expect(new EventNormalizer().observe('s', '', event('turn/end', { turn: 1, reason: { kind: 'future' } }), false)).toBeUndefined();
   });
+  it('preserves bursts larger than 20 in insertion order without duplicates', () => {
+    const gate = new CompletionGate();
+    const notices = Array.from({ length: 50 }, (_, i) => notice(`burst:${i}`));
+    for (const n of notices) { gate.enqueue(n); gate.enqueue(n); }
+    gate.enqueue(notices[0]);
+    expect(gate.flush('s')).toEqual(notices);
+    expect(gate.flush('s')).toEqual([]);
+    gate.enqueue(notices[0]);
+    expect(gate.flush('s')).toEqual([notices[0]]);
+  });
   it('holds and deduplicates terminal records until idle', () => {
     const gate = new CompletionGate(); gate.enqueue(notice()); gate.enqueue(notice());
     expect(gate.flush('other')).toEqual([]); expect(gate.flush('s')).toEqual([notice()]); expect(gate.flush('s')).toEqual([]);

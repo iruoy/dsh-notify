@@ -44,6 +44,32 @@ it('runs in Cordis, filters subagents, delivers approvals immediately and flushe
 });
 
 
+it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly once on %s', async transition => {
+  const f = await fixture(false); const ctx = new Context();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
+  const root = { id: 'root', status: 'running' };
+  ctx.reflect.provide('sessions', {} as any);
+  ctx.reflect.provide('agents', { get: () => root, roots: () => [root] } as any);
+  await ctx.plugin(plugin, { dataDir: f.dir });
+  try {
+    for (let turn = 1; turn <= 50; turn++) {
+      for (let duplicate = 0; duplicate < 2; duplicate++) {
+        await ctx.parallel('session/event', { id: 'root' } as any,
+          { type: 'turn/end', time: Date.now(), data: { turn, reason: { kind: 'completed' } } } as any);
+      }
+    }
+    expect((await Store.open(f.dir)).state.history).toEqual([]);
+    const flush = () => transition === 'idle'
+      ? ctx.parallel('agent/status', { agent: root, status: 'idle' } as any)
+      : ctx.parallel('agent/disposed', { agent: root } as any);
+    await flush(); await flush();
+    const saved = (await Store.open(f.dir)).state;
+    expect(saved.history.map(h => h.notice.id)).toEqual(Array.from({ length: 50 }, (_, i) => `root:turn:${i + 1}`));
+    expect(saved.sequence).toBe(50);
+    expect(saved.seen).toHaveLength(50);
+  } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
+});
+
 it.each([false, true])('waits for persistence before publication and drains shutdown (shutdown=%s)', async shutdown => {
   const f = await fixture(false); const ctx = new Context();
   const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));

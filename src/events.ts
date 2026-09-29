@@ -113,7 +113,7 @@ export class CompletionGate {
   enqueue(notice: Notice): void {
     const list = this.pending.get(notice.sessionId) ?? [];
     if (!list.some(n => n.id === notice.id)) list.push(notice);
-    this.pending.set(notice.sessionId, list.slice(-20));
+    this.pending.set(notice.sessionId, list);
   }
   flush(id: string): Notice[] { const list = this.pending.get(id) ?? []; this.pending.delete(id); return list; }
 }
