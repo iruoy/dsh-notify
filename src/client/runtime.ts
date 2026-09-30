@@ -35,7 +35,8 @@ export class BrowserRuntime {
   private waiting = false;
   private paused = false;
   private lastCursor?: number;
-  private cursorSaved = true;
+  /** The cursor this tab last wrote to or read from shared storage. */
+  private storedCursor?: number;
   private receipts = new Set<number>();
   private acknowledging = new Set<number>();
   private receiptRetry?: ReturnType<typeof setTimeout>;
@@ -68,10 +69,11 @@ export class BrowserRuntime {
     this.setStatus('Waiting for the notification tab');
     void navigator.locks.request('dsh-notify:leader', { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== 'granted') return;
-      // The previous leader may have observed a server reset, so adopt its shared
-      // cursor. If our own last write failed, storage may lag our progress instead.
+      // Another leader may have written the shared cursor after a server reset, so adopt it.
+      // If storage still holds our own last write, our in-memory cursor is newer (a later
+      // write may have failed) and stays authoritative, even if it moved backwards.
       const shared = this.sharedCursor();
-      if (shared !== undefined) this.lastCursor = this.cursorSaved ? shared : Math.max(shared, this.lastCursor ?? 0);
+      if (shared !== undefined && shared !== this.storedCursor) this.lastCursor = this.storedCursor = shared;
       await new Promise<void>(resolve => {
         this.release = resolve;
         this.paused = false;
@@ -92,7 +94,7 @@ export class BrowserRuntime {
     if (!Number.isSafeInteger(seq) || seq < 0) return;
     // Server cursors are authoritative, including after persisted state is reset.
     this.lastCursor = seq;
-    try { localStorage.setItem(CURSOR, String(seq)); this.cursorSaved = true; } catch { this.cursorSaved = false; /* In-memory cursor survives same-tab recovery. */ }
+    try { localStorage.setItem(CURSOR, String(seq)); this.storedCursor = seq; } catch { /* In-memory cursor survives same-tab recovery. */ }
   }
   private acknowledge(seq: number): void {
     if (this.stopped || this.acknowledging.has(seq)) return;

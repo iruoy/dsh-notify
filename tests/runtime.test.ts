@@ -178,14 +178,27 @@ it('keeps its own progress when only storage writes fail', async () => {
   s.source.emit('notice', { seq: 41, notice: notice('after-reset') });
   expect(s.show).toHaveBeenCalledTimes(1);
   expect(s.values.get('dsh-notify:cursor:v1')).toBe('100');
-  // Reacquiring leadership keeps unsaved progress over the lagging stored value.
-  s.values.set('dsh-notify:cursor:v1', '30');
+  // Reacquiring leadership keeps unsaved progress over our own stale, higher stored value.
   s.NotificationMock.permission = 'denied';
   s.runtime.refresh();
   await new Promise(resolve => setTimeout(resolve, 0));
   s.NotificationMock.permission = 'granted';
   s.runtime.refresh();
   expect(Source.instances[1].url).toBe('/api/dsh-notify/events?after=41');
+});
+it('adopts a cursor another leader wrote after its own storage write failed', async () => {
+  const s = setup();
+  s.source.emit('cursor', 90);
+  localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+  s.source.emit('cursor', 100);
+  s.NotificationMock.permission = 'denied';
+  s.runtime.refresh();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // Another leader observed a server reset and saved its lower cursor.
+  s.values.set('dsh-notify:cursor:v1', '20');
+  s.NotificationMock.permission = 'granted';
+  s.runtime.refresh();
+  expect(Source.instances[1].url).toBe('/api/dsh-notify/events?after=20');
 });
 it.each([
   { storageFails: false, resetCursor: 0 },

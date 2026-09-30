@@ -85,7 +85,8 @@ var BrowserRuntime = class {
   waiting = false;
   paused = false;
   lastCursor;
-  cursorSaved = true;
+  /** The cursor this tab last wrote to or read from shared storage. */
+  storedCursor;
   receipts = /* @__PURE__ */ new Set();
   acknowledging = /* @__PURE__ */ new Set();
   receiptRetry;
@@ -137,7 +138,7 @@ var BrowserRuntime = class {
     void navigator.locks.request("dsh-notify:leader", { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== "granted") return;
       const shared = this.sharedCursor();
-      if (shared !== void 0) this.lastCursor = this.cursorSaved ? shared : Math.max(shared, this.lastCursor ?? 0);
+      if (shared !== void 0 && shared !== this.storedCursor) this.lastCursor = this.storedCursor = shared;
       await new Promise((resolve) => {
         this.release = resolve;
         this.paused = false;
@@ -165,9 +166,8 @@ var BrowserRuntime = class {
     this.lastCursor = seq;
     try {
       localStorage.setItem(CURSOR, String(seq));
-      this.cursorSaved = true;
+      this.storedCursor = seq;
     } catch {
-      this.cursorSaved = false;
     }
   }
   acknowledge(seq) {
