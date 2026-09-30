@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { defaults, record, validateSettings, validateWebhook, ValidationError } from './config.js';
 import { writeJson } from './persistence.js';
 import { parseNotice, parseState } from './state.js';
+import { LIMITS } from './limits.js';
 export class ConflictError extends Error {
 }
 export class Store {
@@ -133,10 +134,13 @@ export class Store {
     }
     /** Commit accepted notices in order with one durable snapshot write, skipping any that fail validation. */
     addMany(values) {
-        // Every committed notice must be reopenable; drop invalid ones before any mutation so the rest stay atomic.
+        if (values.length > LIMITS.batch)
+            return Promise.reject(new ValidationError(`Notification batch exceeds ${LIMITS.batch}.`));
+        // Validate and select bounded fields BEFORE serialization, including untrusted extra fields.
+        // The JSON roundtrip retains the same canonical persisted shape as a restart.
         const notices = values.flatMap(value => {
             try {
-                return [parseNotice(JSON.parse(JSON.stringify(value)))];
+                return [parseNotice(JSON.parse(JSON.stringify(parseNotice(value))))];
             }
             catch {
                 return [];

@@ -22,6 +22,8 @@ export declare class EventNormalizer {
 /** DSH appends turn/end before setting idle. Hold terminal notifications until idle. */
 export declare class CompletionGate {
     private pending;
-    enqueue(notice: Notice): void;
+    private size;
+    /** Reject newest overflow, retaining the order and deduplication of accepted work. */
+    enqueue(notice: Notice): boolean;
     flush(id: string): Notice[];
 }

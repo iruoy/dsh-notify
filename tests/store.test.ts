@@ -89,7 +89,9 @@ describe('durable state and privacy', async () => {
     expect(pending.attempts).toBe(1);
     expect(await store.add(notice('pending'))).toBeUndefined();
 
-    for (let i = 0; i < 2000; i++) await store.add({ ...notice(`newer:${i}`), kind: 'error' });
+    for (let i = 0; i < 2000; i += 100) {
+      await store.addMany(Array.from({ length: 100 }, (_, j) => ({ ...notice(`newer:${i + j}`), kind: 'error' })));
+    }
     expect(store.state.seen).toHaveLength(2000);
     expect(store.state.seen).not.toContain('pending');
     expect(store.state.history.some(entry => entry.seq === pending.seq)).toBe(false);

@@ -1,9 +1,12 @@
 import { isDeepStrictEqual } from 'node:util';
+import { boundedString, LIMITS } from './limits.js';
 import { record, validateSettings, validateWebhook } from './config.js';
 import { KINDS, type Delivery, type HistoryEntry, type Notice, type RunUsage, type State } from './types.js';
 
 function invalid(): never { throw new Error('Invalid persisted state'); }
-function string(value: unknown): string { return typeof value === 'string' ? value : invalid(); }
+function string(value: unknown, max: number = LIMITS.id): string { return boundedString(value, max) ? value : invalid(); }
+const route = (value: unknown) => string(value, LIMITS.route);
+const text = (value: unknown) => string(value, LIMITS.text);
 function boolean(value: unknown): boolean { return typeof value === 'boolean' ? value : invalid(); }
 function number(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : invalid();
@@ -21,7 +24,7 @@ function run(value: unknown): RunUsage {
   const r = record(value);
   const calls = integer(r.calls), reportedCalls = integer(r.reportedCalls);
   if (reportedCalls > calls) invalid();
-  return { provider: string(r.provider), model: string(r.model), effort: optional(r.effort, string),
+  return { provider: route(r.provider), model: route(r.model), effort: optional(r.effort, route),
     inputTokens: integer(r.inputTokens), outputTokens: integer(r.outputTokens),
     cacheReadTokens: integer(r.cacheReadTokens), cacheWriteTokens: integer(r.cacheWriteTokens),
     totalTokens: optional(r.totalTokens, integer), calls, reportedCalls };
@@ -35,10 +38,10 @@ export function parseNotice(value: unknown): Notice {
     if (pricedCalls > calls) invalid();
     cost = { usd: number(c.usd), calls, pricedCalls, fetchedAt: optional(c.fetchedAt, timestamp), stale: boolean(c.stale) };
   }
-  return { id: string(n.id), kind: n.kind as Notice['kind'], sessionId: string(n.sessionId), title: string(n.title), time: timestamp(n.time),
+  return { id: string(n.id), kind: n.kind as Notice['kind'], sessionId: string(n.sessionId, LIMITS.sessionId), title: string(n.title, LIMITS.title), time: timestamp(n.time),
     isSubagent: optional(n.isSubagent, boolean), durationMs: optional(n.durationMs, number),
-    summary: optional(n.summary, string), workspace: optional(n.workspace, string), input: optional(n.input, string),
-    runs: optional(n.runs, v => array(v, run)), usageComplete: optional(n.usageComplete, boolean), cost };
+    summary: optional(n.summary, text), workspace: optional(n.workspace, v => string(v, LIMITS.workspace)), input: optional(n.input, text),
+    runs: optional(n.runs, v => array(v, run, LIMITS.runs)), usageComplete: optional(n.usageComplete, boolean), cost };
 }
 function delivery(value: unknown): Delivery {
   return ['disabled', 'waiting', 'delivered', 'retrying', 'failed', 'cancelled'].includes(string(value)) ? value as Delivery : invalid();
@@ -58,7 +61,7 @@ export function parseState(value: unknown): State {
   if (s.version !== 1) invalid();
   const state: State = { version: 1, revision: integer(s.revision), sequence: integer(s.sequence),
     settings: validateSettings(s.settings), webhook: s.webhook === '' ? '' : validateWebhook(s.webhook),
-    history: array(s.history, history, 200), queue: array(s.queue, job, 100), seen: array(s.seen, string, 2000) };
+    history: array(s.history, history, 200), queue: array(s.queue, job, 100), seen: array(s.seen, v => string(v), 2000) };
   if (new Set(state.seen).size !== state.seen.length) invalid();
   // History fits within the deduplication window, but pending jobs can outlive it.
   if (new Set(state.history.map(entry => entry.notice.id)).size !== state.history.length) invalid();

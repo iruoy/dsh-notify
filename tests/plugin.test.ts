@@ -78,7 +78,7 @@ it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly
   ctx.reflect.provide('agents', { get: () => root, roots: () => [root] } as any);
   await ctx.plugin(plugin, { dataDir: f.dir });
   try {
-    for (let turn = 1; turn <= 50; turn++) {
+    for (let turn = 1; turn <= 150; turn++) {
       for (let duplicate = 0; duplicate < 2; duplicate++) {
         await ctx.parallel('session/event', { id: 'root' } as any,
           { type: 'turn/end', time: Date.now(), data: { turn, reason: { kind: 'completed' } } } as any);
@@ -87,8 +87,9 @@ it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly
     expect((await Store.open(f.dir)).state.history).toEqual([]);
     const writer = vi.spyOn(persistence, 'writeJson');
     const publish = vi.spyOn(BrowserStream.prototype, 'publish').mockImplementation(() => {
-      // Publication happens only after the whole burst is durable.
-      expect(JSON.parse(readFileSync(join(f.dir, 'state.json'), 'utf8')).sequence).toBe(50);
+      // Each published batch is durable before any of its records are sent.
+      const sequence = JSON.parse(readFileSync(join(f.dir, 'state.json'), 'utf8')).sequence;
+      expect([100, 150]).toContain(sequence);
       return true as any;
     });
     const flush = () => transition === 'idle'
@@ -96,11 +97,11 @@ it.each(['idle', 'disposed'])('persists every terminal notice in a burst exactly
       : ctx.parallel('agent/disposed', { agent: root } as any);
     await flush(); await flush();
     const saved = (await Store.open(f.dir)).state;
-    expect(saved.history.map(h => h.notice.id)).toEqual(Array.from({ length: 50 }, (_, i) => `root:turn:${i + 1}`));
-    expect(saved.sequence).toBe(50);
-    expect(saved.seen).toHaveLength(50);
-    expect(writer).toHaveBeenCalledTimes(1);
-    expect(publish.mock.calls.map(([entry]) => entry.seq)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+    expect(saved.history.map(h => h.notice.id)).toEqual(Array.from({ length: 150 }, (_, i) => `root:turn:${i + 1}`));
+    expect(saved.sequence).toBe(150);
+    expect(saved.seen).toHaveLength(150);
+    expect(writer).toHaveBeenCalledTimes(2);
+    expect(publish.mock.calls.map(([entry]) => entry.seq)).toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
   } finally { await ctx.fiber.dispose(); vi.restoreAllMocks(); f.cleanup(); }
 });
 
@@ -169,7 +170,7 @@ it('keeps child failures and questions on Slack while suppressing child completi
   } finally { await ctx.fiber.dispose(); fetcher.mockRestore(); f.cleanup(); }
 });
 
-it('skips only the invalid notice in a terminal burst', async () => {
+it('keeps a terminal burst reopenable when host route metadata is invalid', async () => {
   const f = await fixture(false); const ctx = new Context();
   const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline test'));
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -182,13 +183,15 @@ it('skips only the invalid notice in a terminal burst', async () => {
     await sessionEvent('turn/start', { turn: 1 });
     await sessionEvent('turn/end', { turn: 1, reason: { kind: 'completed' } });
     await sessionEvent('turn/start', { turn: 2 });
-    // A host-supplied non-string provider cannot be persisted.
+    // Malformed route metadata is omitted and marked partial, not persisted.
     await sessionEvent('assistant/message', { turn: 2, step: 1, message: { source: { kind: 'model', provider: 7, model: 'm' }, content: [] }, usage: { inputTokens: 1, outputTokens: 1 } });
     await sessionEvent('turn/end', { turn: 2, reason: { kind: 'error' } });
     await sessionEvent('turn/start', { turn: 3 });
     await sessionEvent('turn/end', { turn: 3, reason: { kind: 'completed' } });
     root.status = 'idle'; await ctx.parallel('agent/status', { agent: root, status: 'idle' } as any);
-    expect((await Store.open(f.dir)).state.history.map(h => h.notice.id)).toEqual(['root:turn:1', 'root:turn:3']);
-    expect(warn).toHaveBeenCalledExactlyOnceWith('[dsh-notify] An invalid notification was skipped.');
+    const history = (await Store.open(f.dir)).state.history;
+    expect(history.map(h => h.notice.id)).toEqual(['root:turn:1', 'root:turn:2', 'root:turn:3']);
+    expect(history[1].notice).toMatchObject({ runs: [], usageComplete: false });
+    expect(warn).not.toHaveBeenCalled();
   } finally { await ctx.fiber.dispose(); warn.mockRestore(); fetcher.mockRestore(); f.cleanup(); }
 });

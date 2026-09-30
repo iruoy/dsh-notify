@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-user-approval';
 import { KINDS, type Kind, type Notice, type RunUsage } from './types.js';
 import type { CallUsage, PriceCall } from './pricing.js';
 import { isCount, isTimestamp } from './state.js';
+import { boundedString, LIMITS } from './limits.js';
 
 function text(content: readonly unknown[]): string {
   return content.flatMap(block => {
@@ -29,6 +30,9 @@ export class EventNormalizer {
   private turns = new Map<string, ActiveTurn>();
   constructor(private priceCall?: PriceCall) {}
   observe(sessionId: string, title: string | undefined, event: SessionEvent, includeSummary: boolean, context: NoticeContext = {}): Notice | undefined {
+    // Never truncate identifiers: that could alias unrelated sessions or approvals.
+    if (!boundedString(sessionId, LIMITS.sessionId)) return;
+    if (event.type === 'approval/asked' && !boundedString(`${sessionId}:approval:${event.data.id}`, LIMITS.id)) return;
     switch (event.type) {
       case 'turn/start': this.startTurn(sessionId, event.data.turn, event.time); return;
       case 'user/message': this.appendHumanInput(this.turns.get(sessionId), event); return;
@@ -61,21 +65,25 @@ export class EventNormalizer {
     // Effort is optional metadata; a malformed host value must not make the whole notice unpersistable.
     const effort = config && config.provider === provider && config.model === model && typeof config.reasoningEffort === 'string' ? config.reasoningEffort : undefined;
     if (active.cost) active.cost.calls++;
-    if (!provider || !model) active.complete = false;
+    if (!provider || !model || !boundedString(provider, LIMITS.route) || !boundedString(model, LIMITS.route)
+      || (effort !== undefined && !boundedString(effort, LIMITS.route))) active.complete = false;
     else {
       const run = this.runFor(active, provider, model, effort);
       // Attempt streams may contain a final usage snapshot; never sum cumulative snapshots.
       const reported = event.type === 'assistant/message' ? event.data.usage : event.data.stream
         .flatMap(r => r.type === 'chunk' && r.chunk.type === 'usage' ? [r.chunk.usage] : []).at(-1);
-      run.calls++;
-      if (reported) this.recordUsage(active, run, reported);
-      else active.complete = false;
+      if (run) {
+        run.calls++;
+        if (reported) this.recordUsage(active, run, reported);
+        else active.complete = false;
+      } else active.complete = false;
     }
     if (event.type === 'assistant/message' && includeSummary) active.summary = (active.summary + '\n' + text(event.data.message.content)).trim().slice(0, 1500);
   }
-  private runFor(active: ActiveTurn, provider: string, model: string, effort?: string): RunUsage {
+  private runFor(active: ActiveTurn, provider: string, model: string, effort?: string): RunUsage | undefined {
     let run = active.runs.find(r => r.provider === provider && r.model === model && r.effort === effort);
     if (!run) {
+      if (active.runs.length >= LIMITS.runs) return;
       run = { provider, model, effort, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, calls: 0, reportedCalls: 0 };
       active.runs.push(run);
     }
@@ -120,10 +128,19 @@ export class EventNormalizer {
 /** DSH appends turn/end before setting idle. Hold terminal notifications until idle. */
 export class CompletionGate {
   private pending = new Map<string, Notice[]>();
-  enqueue(notice: Notice): void {
+  private size = 0;
+  /** Reject newest overflow, retaining the order and deduplication of accepted work. */
+  enqueue(notice: Notice): boolean {
     const list = this.pending.get(notice.sessionId) ?? [];
-    if (!list.some(n => n.id === notice.id)) list.push(notice);
+    if (list.some(n => n.id === notice.id)) return true;
+    if (list.length >= LIMITS.pendingPerSession || this.size >= LIMITS.pendingTotal) return false;
+    list.push(notice); this.size++;
     this.pending.set(notice.sessionId, list);
+    return true;
   }
-  flush(id: string): Notice[] { const list = this.pending.get(id) ?? []; this.pending.delete(id); return list; }
+  flush(id: string): Notice[] {
+    const list = this.pending.get(id) ?? [];
+    this.pending.delete(id); this.size -= list.length;
+    return list;
+  }
 }

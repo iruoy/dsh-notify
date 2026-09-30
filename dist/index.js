@@ -8,6 +8,7 @@ import { SlackQueue } from './webhook.js';
 import { BrowserStream } from './browser.js';
 import { registerApi } from './api.js';
 import { PricingCache } from './pricing.js';
+import { LIMITS } from './limits.js';
 export const name = 'dsh-notify';
 export const inject = ['sessions', 'agents'];
 export { Config };
@@ -21,15 +22,16 @@ export async function apply(ctx, config = {}) {
     const emit = async (...notices) => {
         if (!notices.length)
             return;
-        // Publish only after the whole burst is durable, in sequence order.
+        // Drain bounded batches in order; publish each only after its durable commit.
         try {
-            // The store skips malformed notices, so one cannot discard the rest of its burst.
-            const { entries, invalid } = await store.addMany(notices);
-            if (invalid)
-                console.warn(invalid === 1 ? '[dsh-notify] An invalid notification was skipped.' : `[dsh-notify] ${invalid} invalid notifications were skipped.`);
-            if (!stopped)
-                for (const entry of entries)
-                    stream.publish(entry);
+            for (let i = 0; i < notices.length; i += LIMITS.batch) {
+                const { entries, invalid } = await store.addMany(notices.slice(i, i + LIMITS.batch));
+                if (invalid)
+                    console.warn(invalid === 1 ? '[dsh-notify] An invalid notification was skipped.' : `[dsh-notify] ${invalid} invalid notifications were skipped.`);
+                if (!stopped)
+                    for (const entry of entries)
+                        stream.publish(entry);
+            }
         }
         catch {
             console.warn('[dsh-notify] Notification could not be persisted. Check the state directory.');
@@ -49,13 +51,13 @@ export async function apply(ctx, config = {}) {
         notice.isSubagent = !rootSessions.has(String(agent.id));
         if (notice.kind === 'approval' || agent.status === 'idle')
             await emit(notice);
-        else
-            gate.enqueue(notice);
+        else if (!gate.enqueue(notice))
+            console.warn('[dsh-notify] Pending terminal notification limit reached; newest notification skipped.');
     });
     ctx.on('user-questions/request', async (request, next) => {
         const sessionId = String(request.agent?.id ?? 'agentless');
         await emit({ id: `${sessionId}:question:${randomUUID()}`, kind: 'question', sessionId,
-            title: `Session ${sessionId}`, time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
+            title: `Session ${sessionId}`.slice(0, LIMITS.title), time: Date.now(), isSubagent: !!request.agent && !ctx.agents.roots().some(agent => String(agent.id) === sessionId) });
         return next();
     }, { prepend: true });
     ctx.on('agent/status', async ({ agent, status }) => {
