@@ -85,6 +85,7 @@ var BrowserRuntime = class {
   waiting = false;
   paused = false;
   lastCursor;
+  cursorSaved = true;
   receipts = /* @__PURE__ */ new Set();
   acknowledging = /* @__PURE__ */ new Set();
   receiptRetry;
@@ -135,7 +136,8 @@ var BrowserRuntime = class {
     this.setStatus("Waiting for the notification tab");
     void navigator.locks.request("dsh-notify:leader", { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== "granted") return;
-      this.lastCursor = this.cursor(true);
+      const shared = this.sharedCursor();
+      if (shared !== void 0) this.lastCursor = this.cursorSaved ? shared : Math.max(shared, this.lastCursor ?? 0);
       await new Promise((resolve) => {
         this.release = resolve;
         this.paused = false;
@@ -150,20 +152,22 @@ var BrowserRuntime = class {
       this.waiting = false;
     });
   };
-  cursor(preferShared = false) {
+  sharedCursor() {
     try {
       const raw = localStorage.getItem(CURSOR), value = raw === null ? void 0 : Number(raw);
-      if (value !== void 0 && Number.isSafeInteger(value) && value >= 0) return preferShared ? value : Math.max(value, this.lastCursor ?? 0);
+      if (value !== void 0 && Number.isSafeInteger(value) && value >= 0) return value;
     } catch {
     }
-    return this.lastCursor;
+    return void 0;
   }
   saveCursor(seq) {
     if (!Number.isSafeInteger(seq) || seq < 0) return;
     this.lastCursor = seq;
     try {
-      localStorage.setItem(CURSOR, String(this.lastCursor));
+      localStorage.setItem(CURSOR, String(seq));
+      this.cursorSaved = true;
     } catch {
+      this.cursorSaved = false;
     }
   }
   acknowledge(seq) {
@@ -201,7 +205,7 @@ var BrowserRuntime = class {
       this.refresh();
       return;
     }
-    const after = this.cursor();
+    const after = this.lastCursor;
     const source = this.source = new EventSource(API + "/events" + (after === void 0 ? "" : `?after=${after}`));
     const active = () => !this.stopped && !this.paused && this.source === source;
     source.onopen = () => {
@@ -233,7 +237,7 @@ var BrowserRuntime = class {
       try {
         const { seq, notice } = JSON.parse(event.data);
         if (!Number.isSafeInteger(seq) || seq < 0) throw new Error("Invalid sequence");
-        if (seq <= (this.cursor() ?? -1)) return;
+        if (seq <= (this.lastCursor ?? -1)) return;
         try {
           this.show(notice);
         } catch {

@@ -169,6 +169,24 @@ it.each([false, true])('resumes the shared cursor after leadership changes (stor
     expect(s.values.get('dsh-notify:cursor:v1')).toBe('55');
   }
 });
+it('keeps its own progress when only storage writes fail', async () => {
+  const s = setup();
+  s.source.emit('cursor', 100);
+  localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+  // A server reset must not be masked by the stale stored cursor.
+  s.source.emit('cursor', 40);
+  s.source.emit('notice', { seq: 41, notice: notice('after-reset') });
+  expect(s.show).toHaveBeenCalledTimes(1);
+  expect(s.values.get('dsh-notify:cursor:v1')).toBe('100');
+  // Reacquiring leadership keeps unsaved progress over the lagging stored value.
+  s.values.set('dsh-notify:cursor:v1', '30');
+  s.NotificationMock.permission = 'denied';
+  s.runtime.refresh();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  s.NotificationMock.permission = 'granted';
+  s.runtime.refresh();
+  expect(Source.instances[1].url).toBe('/api/dsh-notify/events?after=41');
+});
 it.each([
   { storageFails: false, resetCursor: 0 },
   { storageFails: false, resetCursor: 40 },

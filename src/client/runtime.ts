@@ -35,6 +35,7 @@ export class BrowserRuntime {
   private waiting = false;
   private paused = false;
   private lastCursor?: number;
+  private cursorSaved = true;
   private receipts = new Set<number>();
   private acknowledging = new Set<number>();
   private receiptRetry?: ReturnType<typeof setTimeout>;
@@ -67,9 +68,10 @@ export class BrowserRuntime {
     this.setStatus('Waiting for the notification tab');
     void navigator.locks.request('dsh-notify:leader', { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== 'granted') return;
-      // The previous leader may have observed a server reset. Adopt its shared
-      // cursor before replay, retaining our fallback only if storage is unavailable.
-      this.lastCursor = this.cursor(true);
+      // The previous leader may have observed a server reset, so adopt its shared
+      // cursor. If our own last write failed, storage may lag our progress instead.
+      const shared = this.sharedCursor();
+      if (shared !== undefined) this.lastCursor = this.cursorSaved ? shared : Math.max(shared, this.lastCursor ?? 0);
       await new Promise<void>(resolve => {
         this.release = resolve;
         this.paused = false;
@@ -79,18 +81,18 @@ export class BrowserRuntime {
       this.disconnect(); this.release = undefined;
     }).catch(() => { if (!this.stopped) this.setStatus('Could not acquire notification leadership.'); }).finally(() => { this.waiting = false; });
   };
-  private cursor(preferShared = false): number | undefined {
+  private sharedCursor(): number | undefined {
     try {
       const raw = localStorage.getItem(CURSOR), value = raw === null ? undefined : Number(raw);
-      if (value !== undefined && Number.isSafeInteger(value) && value >= 0) return preferShared ? value : Math.max(value, this.lastCursor ?? 0);
+      if (value !== undefined && Number.isSafeInteger(value) && value >= 0) return value;
     } catch { /* Keep same-tab replay safe when storage is unavailable. */ }
-    return this.lastCursor;
+    return undefined;
   }
   private saveCursor(seq: number): void {
     if (!Number.isSafeInteger(seq) || seq < 0) return;
     // Server cursors are authoritative, including after persisted state is reset.
     this.lastCursor = seq;
-    try { localStorage.setItem(CURSOR, String(this.lastCursor)); } catch { /* In-memory cursor survives same-tab recovery. */ }
+    try { localStorage.setItem(CURSOR, String(seq)); this.cursorSaved = true; } catch { this.cursorSaved = false; /* In-memory cursor survives same-tab recovery. */ }
   }
   private acknowledge(seq: number): void {
     if (this.stopped || this.acknowledging.has(seq)) return;
@@ -124,7 +126,8 @@ export class BrowserRuntime {
   private connect(): void {
     if (this.stopped || this.paused || !this.release) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') { this.refresh(); return; }
-    const after = this.cursor();
+    // Only the lock holder writes the cursor, so the value synced at acquisition stays authoritative.
+    const after = this.lastCursor;
     const source = this.source = new EventSource(API + '/events' + (after === undefined ? '' : `?after=${after}`));
     const active = () => !this.stopped && !this.paused && this.source === source;
     source.onopen = () => { if (active()) { this.connectionRetryDelay = 1000; this.setStatus('Connected'); this.channel?.postMessage('leader'); } };
@@ -148,7 +151,7 @@ export class BrowserRuntime {
       try {
         const { seq, notice } = JSON.parse((event as MessageEvent).data) as { seq: number; notice: Notice };
         if (!Number.isSafeInteger(seq) || seq < 0) throw new Error('Invalid sequence');
-        if (seq <= (this.cursor() ?? -1)) return;
+        if (seq <= (this.lastCursor ?? -1)) return;
         try { this.show(notice); } catch {
           this.pause('Notification could not be shown. Check browser permissions, then focus this tab to retry.');
           void request('/ack', 'POST', { seq, delivered: false }).catch(() => {});
