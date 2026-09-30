@@ -50,10 +50,11 @@ export class BrowserStream {
         res.on('close', () => { clearInterval(heartbeat); this.clients.delete(res); });
     }
     publish(entry) {
-        if (!this.eligible(entry))
+        if (!this.clients.size || !this.eligible(entry))
             return;
+        const packet = this.packet(entry);
         for (const res of this.clients)
-            this.write(res, this.packet(entry));
+            this.write(res, packet);
     }
     dispose() { for (const res of this.clients)
         res.end(); this.clients.clear(); }

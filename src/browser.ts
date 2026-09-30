@@ -39,8 +39,9 @@ export class BrowserStream {
     res.on('close', () => { clearInterval(heartbeat); this.clients.delete(res); });
   }
   publish(entry: HistoryEntry): void {
-    if (!this.eligible(entry)) return;
-    for (const res of this.clients) this.write(res, this.packet(entry));
+    if (!this.clients.size || !this.eligible(entry)) return;
+    const packet = this.packet(entry);
+    for (const res of this.clients) this.write(res, packet);
   }
   dispose(): void { for (const res of this.clients) res.end(); this.clients.clear(); }
 }
