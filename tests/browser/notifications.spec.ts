@@ -44,6 +44,32 @@ test('history refresh failures retain stale rows and recover automatically', asy
   await expect(row).toBeVisible();
 });
 
+test('slow history requests never overlap and recover on the next polling tick', async ({ page }) => {
+  await page.clock.install();
+  let polls = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/dsh-notify/history', async route => {
+    polls++;
+    if (polls === 1) {
+      await pending;
+      await route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+    } else {
+      await route.fulfill({ json: [{ seq: 1, notice: { ...notice('serialized-poll'), title: 'Fresh serialized history' }, browser: 'delivered', slack: 'disabled', attempts: 0 }] });
+    }
+  });
+  await page.goto(base);
+  await expect.poll(() => polls).toBe(1);
+  await page.clock.runFor(10000);
+  expect(polls).toBe(1);
+  release();
+  await expect(page.getByRole('alert')).toContainText('Delivery history is unavailable.');
+  await page.clock.runFor(5000);
+  await expect(page.getByRole('row').filter({ hasText: 'Fresh serialized history' })).toBeVisible();
+  await expect(page.getByRole('alert')).toBeHidden();
+  expect(polls).toBe(2);
+});
+
 test('initial history failure is unavailable rather than an empty history', async ({ page }) => {
   await page.route('**/api/dsh-notify/history', route => route.abort());
   await page.goto(base);

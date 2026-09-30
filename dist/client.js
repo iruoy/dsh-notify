@@ -312,14 +312,22 @@ function SettingsSection({ runtime }) {
     void reload().catch((e) => {
       if (alive) setMessage(e.message);
     });
-    const poll = () => request("/history").then((rows) => {
-      if (alive) {
-        setHistory(rows);
-        setHistoryError(false);
+    let inFlight = false;
+    const poll = async () => {
+      if (!alive || inFlight) return;
+      inFlight = true;
+      try {
+        const rows = await request("/history");
+        if (alive) {
+          setHistory(rows);
+          setHistoryError(false);
+        }
+      } catch {
+        if (alive) setHistoryError(true);
+      } finally {
+        inFlight = false;
       }
-    }).catch(() => {
-      if (alive) setHistoryError(true);
-    });
+    };
     void poll();
     const timer = setInterval(poll, 5e3);
     const focus = () => setPermission(permissionStatus());

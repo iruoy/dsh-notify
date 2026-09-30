@@ -35,9 +35,16 @@ export function SettingsSection({ runtime }: Props) {
   useEffect(() => {
     let alive = true;
     void reload().catch(e => { if (alive) setMessage(e.message); });
-    const poll = () => request<HistoryEntry[]>('/history').then(rows => {
-      if (alive) { setHistory(rows); setHistoryError(false); }
-    }).catch(() => { if (alive) setHistoryError(true); });
+    let inFlight = false;
+    const poll = async () => {
+      if (!alive || inFlight) return;
+      inFlight = true;
+      try {
+        const rows = await request<HistoryEntry[]>('/history');
+        if (alive) { setHistory(rows); setHistoryError(false); }
+      } catch { if (alive) setHistoryError(true); }
+      finally { inFlight = false; }
+    };
     void poll(); const timer = setInterval(poll, 5000);
     const focus = () => setPermission(permissionStatus()); window.addEventListener('focus', focus);
     return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', focus); };
