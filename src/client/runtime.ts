@@ -67,6 +67,9 @@ export class BrowserRuntime {
     this.setStatus('Waiting for the notification tab');
     void navigator.locks.request('dsh-notify:leader', { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== 'granted') return;
+      // The previous leader may have observed a server reset. Adopt its shared
+      // cursor before replay, retaining our fallback only if storage is unavailable.
+      this.lastCursor = this.cursor(true);
       await new Promise<void>(resolve => {
         this.release = resolve;
         this.paused = false;
@@ -76,10 +79,10 @@ export class BrowserRuntime {
       this.disconnect(); this.release = undefined;
     }).catch(() => { if (!this.stopped) this.setStatus('Could not acquire notification leadership.'); }).finally(() => { this.waiting = false; });
   };
-  private cursor(): number | undefined {
+  private cursor(preferShared = false): number | undefined {
     try {
       const raw = localStorage.getItem(CURSOR), value = raw === null ? undefined : Number(raw);
-      if (value !== undefined && Number.isSafeInteger(value) && value >= 0) return Math.max(value, this.lastCursor ?? 0);
+      if (value !== undefined && Number.isSafeInteger(value) && value >= 0) return preferShared ? value : Math.max(value, this.lastCursor ?? 0);
     } catch { /* Keep same-tab replay safe when storage is unavailable. */ }
     return this.lastCursor;
   }

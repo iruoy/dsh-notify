@@ -149,6 +149,26 @@ it('retains an in-memory cursor when localStorage is unavailable', () => {
   s.runtime.refresh();
   expect(Source.instances[1].url).toBe('/api/dsh-notify/events?after=4');
 });
+it.each([false, true])('resumes the shared cursor after leadership changes (storage unavailable: %s)', async storageFails => {
+  const s = setup(storageFails);
+  s.source.emit('cursor', 100);
+  s.NotificationMock.permission = 'denied';
+  s.runtime.refresh();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // Another leader observes restored server state while this tab has released its lock.
+  s.values.set('dsh-notify:cursor:v1', '50');
+  s.NotificationMock.permission = 'granted';
+  s.runtime.refresh();
+  const recovered = Source.instances[1];
+  expect(recovered.url).toBe(`/api/dsh-notify/events?after=${storageFails ? 100 : 50}`);
+  if (!storageFails) {
+    // The server replays notices before sending its final cursor packet.
+    for (let seq = 51; seq <= 55; seq++) recovered.emit('notice', { seq, notice: notice(String(seq)) });
+    recovered.emit('cursor', 55);
+    expect(s.show).toHaveBeenCalledTimes(5);
+    expect(s.values.get('dsh-notify:cursor:v1')).toBe('55');
+  }
+});
 it.each([
   { storageFails: false, resetCursor: 0 },
   { storageFails: false, resetCursor: 40 },

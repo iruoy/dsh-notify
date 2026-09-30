@@ -135,6 +135,7 @@ var BrowserRuntime = class {
     this.setStatus("Waiting for the notification tab");
     void navigator.locks.request("dsh-notify:leader", { signal: this.abort.signal }, async () => {
       if (this.stopped || Notification.permission !== "granted") return;
+      this.lastCursor = this.cursor(true);
       await new Promise((resolve) => {
         this.release = resolve;
         this.paused = false;
@@ -149,10 +150,10 @@ var BrowserRuntime = class {
       this.waiting = false;
     });
   };
-  cursor() {
+  cursor(preferShared = false) {
     try {
       const raw = localStorage.getItem(CURSOR), value = raw === null ? void 0 : Number(raw);
-      if (value !== void 0 && Number.isSafeInteger(value) && value >= 0) return Math.max(value, this.lastCursor ?? 0);
+      if (value !== void 0 && Number.isSafeInteger(value) && value >= 0) return preferShared ? value : Math.max(value, this.lastCursor ?? 0);
     } catch {
     }
     return this.lastCursor;
